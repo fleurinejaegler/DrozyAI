@@ -1,0 +1,26 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Data and models (large, not tracked)
+data/
+*.h5
+*.pkl
+*.npz
+models/*.pt
+checkpoints/
+
+# Secrets (very important)
+.env
+*.pem
+*.key
+
+# Editors
+.vscode/
+.idea/
