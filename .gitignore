@@ -8,25 +8,17 @@ __pycache__/
 venv/
 *.egg-info/
 
-# Data and models (large, not tracked)
-data/
-*.h5
-*.pkl
-*.npz
-models/*.pt
+# Root-level project data (only /data, not src/data)
+/data/
+
+# Root-level reference code (only /reference)
+/reference/
+
+# Model checkpoints
 checkpoints/
+models/*.pt
 
-# Secrets (very important)
-.env
-*.pem
-*.key
-
-# Editors
-.vscode/
-.idea/
-reference/
-
-# Data files (large)
+# Large data files
 *.csv
 *.parquet
 *.h5
@@ -39,3 +31,12 @@ reference/
 *.mov
 *.zip
 *.tar.gz
+
+# Secrets
+.env
+*.pem
+*.key
+
+# Editors
+.vscode/
+.idea/
