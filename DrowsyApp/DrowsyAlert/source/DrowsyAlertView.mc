@@ -1,50 +1,132 @@
 import Toybox.Graphics;
+import Toybox.Math;
+import Toybox.Lang;
 import Toybox.System;
 import Toybox.WatchUi;
+
 class DrowsyAlertView extends WatchUi.View {
+    var fonts as Lang.Dictionary = {};
+    var scale = 1.0;
     function initialize() { View.initialize(); }
     function onShow() as Void { getApp().foreground = true; }
     function onHide() as Void { getApp().foreground = false; }
-    function line(dc, y, font, text, color) {
-        dc.setColor(color, Graphics.COLOR_TRANSPARENT);
-        dc.drawText(dc.getWidth()/2, y, font, text, Graphics.TEXT_JUSTIFY_CENTER);
+    function onLayout(dc as Graphics.Dc) as Void {
+        scale = dc.getWidth() / 454.0;
+        // Explicit pixel heights avoid device-dependent oversized built-in fonts.
+        var sizes = [13, 15, 17, 22, 26, 29, 32, 88, 100];
+        for (var i = 0; i < sizes.size(); i += 1) {
+            var base = sizes[i] >= 88 ? Graphics.FONT_NUMBER_HOT : Graphics.FONT_MEDIUM;
+            var f = Graphics.getVectorFont({:font => base,
+                :scale => sizes[i] * scale / dc.getFontHeight(base).toFloat()});
+            fonts[sizes[i]] = f == null ? Graphics.FONT_SMALL : f;
+        }
     }
-    function onUpdate(dc as Graphics.Dc) as Void {
-        var app = getApp(); var now = System.getTimer(); var sensor = app.sensors; var alert = app.alerts;
-        var h = dc.getHeight(); var color = Graphics.COLOR_LT_GRAY;
-        if (alert.level == 2) { color = Graphics.COLOR_RED; }
-        else if (alert.level == 1) { color = 0xFFB000; }
-        else if (app.result[:status] == :ready && app.result[:riskScore] != null &&
-                 app.result[:riskScore] < Config.WARNING) { color = Graphics.COLOR_GREEN; }
-        else if (app.result[:status] == :ready && app.result[:riskScore] != null) { color = 0xFFB000; }
-        var bg = alert.bright(now) ? Graphics.COLOR_RED : Graphics.COLOR_BLACK;
-        dc.setColor(Graphics.COLOR_WHITE, bg); dc.clear();
-        if (bg == Graphics.COLOR_RED) { color = Graphics.COLOR_WHITE; }
-        line(dc, h*0.08, Graphics.FONT_SMALL, "DrowsyAlert", Graphics.COLOR_WHITE);
-        line(dc, h*0.17, Graphics.FONT_XTINY, app.demo != null ? "DEMO - simulated risk" : "Foreground monitoring",
-            bg == Graphics.COLOR_RED ? Graphics.COLOR_WHITE : (app.demo != null ? 0xFFCC00 : Graphics.COLOR_LT_GRAY));
-        var heart = sensor.fresh(sensor.hrAt, now) ? sensor.hr.format("%d") : "--";
-        line(dc, h*0.25, Graphics.FONT_LARGE, "HR: " + heart + " bpm", Graphics.COLOR_WHITE);
-        var move = sensor.fresh(sensor.accelAt, now) ? sensor.movement.format("%.0f") : "--";
-        line(dc, h*0.38, Graphics.FONT_XTINY, "Accel: " + move + " mg (incl. gravity)", Graphics.COLOR_WHITE);
-        var oxygen = sensor.fresh(sensor.oxygenAt, now) ? sensor.oxygen.format("%d") + "%" : "--";
-        var risk = app.result[:status] == :ready && app.result[:riskScore] != null ?
-            (app.result[:riskScore]*100).format("%.0f") : "--";
-        line(dc, h*0.46, Graphics.FONT_SMALL, "SpO2: " + oxygen + "   Risk: " + risk, color);
-        if (alert.level > 0) {
-            line(dc, h*0.57, alert.level == 2 ? Graphics.FONT_SMALL : Graphics.FONT_XTINY,
-                alert.level == 2 ? "HIGH RISK" : "DROWSINESS ALERT", color);
-            line(dc, h*0.66, Graphics.FONT_XTINY, "Stop safely and take a break.", Graphics.COLOR_WHITE);
-            var state = alert.acknowledged ? "Acknowledged; elevated" : "START to acknowledge";
-            if (app.demo == null && (alert.missing || !sensor.coreFresh(now))) { state = "Warning / data missing"; }
-            line(dc, h*0.74, Graphics.FONT_XTINY, state, Graphics.COLOR_WHITE);
-        } else {
-            line(dc, h*0.60, Graphics.FONT_XTINY, app.status(now), color);
-            if (app.demo == null && app.features.baseline == null) {
-                line(dc, h*0.69, Graphics.FONT_XTINY,
-                    "Baseline: " + app.features.baselineCount + "/" + Config.BASELINE_SECONDS + " valid s", Graphics.COLOR_LT_GRAY);
+    function text(dc, x, y, size, value, color) {
+        dc.setColor(color, Graphics.COLOR_TRANSPARENT);
+        dc.drawText(x * scale, y * scale - dc.getFontHeight(fonts[size]) / 2,
+            fonts[size], value, Graphics.TEXT_JUSTIFY_CENTER);
+    }
+    function gauge(dc, risk, accent, muted) {
+        // Twelve annular segments, with a gap at the bottom for the vitals.
+        for (var i = 0; i < 12; i += 1) {
+            var points = [];
+            var start = (155 + i * 230.0 / 12 + 1.5) * Math.PI / 180;
+            var end = (155 + (i + 1) * 230.0 / 12 - 1.5) * Math.PI / 180;
+            for (var j = 0; j <= 4; j += 1) {
+                var a = start + (end - start) * j / 4;
+                points.add([(227 + 210 * Math.cos(a)) * scale, (227 + 210 * Math.sin(a)) * scale]);
+            }
+            for (var k = 4; k >= 0; k -= 1) {
+                var b = start + (end - start) * k / 4;
+                points.add([(227 + 184 * Math.cos(b)) * scale, (227 + 184 * Math.sin(b)) * scale]);
+            }
+            dc.setColor(risk != null && i < (risk * 12).toNumber() ? accent : muted, Graphics.COLOR_TRANSPARENT);
+            dc.fillPolygon(points);
+        }
+    }
+    function heart(dc, x, y, color) {
+        dc.setColor(color, Graphics.COLOR_TRANSPARENT);
+        dc.fillCircle((x - 7) * scale, (y - 4) * scale, 9 * scale);
+        dc.fillCircle((x + 7) * scale, (y - 4) * scale, 9 * scale);
+        dc.fillPolygon([[(x - 15) * scale, (y - 1) * scale],
+            [(x + 15) * scale, (y - 1) * scale], [x * scale, (y + 17) * scale]]);
+    }
+    function triangle(dc, y, color, background) {
+        dc.setColor(color, Graphics.COLOR_TRANSPARENT);
+        dc.fillPolygon([[227 * scale, (y - 33) * scale],
+            [180 * scale, (y + 33) * scale], [274 * scale, (y + 33) * scale]]);
+        dc.setColor(background, Graphics.COLOR_TRANSPARENT);
+        dc.fillRectangle(223 * scale, (y - 15) * scale, 8 * scale, 29 * scale);
+        dc.fillCircle(227 * scale, (y + 25) * scale, 5 * scale);
+    }
+    function alertWaves(dc, color) {
+        dc.setColor(color, Graphics.COLOR_TRANSPARENT);
+        dc.setPenWidth(3 * scale);
+        for (var side = -1; side <= 1; side += 2) {
+            for (var ring = 0; ring < 3; ring += 1) {
+                var radius = 58 + ring * 12;
+                for (var step = -3; step < 3; step += 1) {
+                    var a = step * 0.18;
+                    var b = (step + 1) * 0.18;
+                    dc.drawLine((227 + side * radius * Math.cos(a)) * scale, (139 + radius * Math.sin(a)) * scale,
+                        (227 + side * radius * Math.cos(b)) * scale, (139 + radius * Math.sin(b)) * scale);
+                }
             }
         }
-        line(dc, h*0.83, Graphics.FONT_XTINY, "MENU / BACK: exit", Graphics.COLOR_LT_GRAY);
+        dc.setPenWidth(1);
+    }
+    function score(dc, value, y, color) {
+        var large = fonts[88];
+        var small = fonts[26];
+        var leftWidth = dc.getTextWidthInPixels(value, large);
+        var rightWidth = dc.getTextWidthInPixels("/100", small);
+        var left = (dc.getWidth() - leftWidth - rightWidth - 5 * scale) / 2;
+        dc.setColor(color, Graphics.COLOR_TRANSPARENT);
+        dc.drawText(left, y * scale - dc.getFontHeight(large) / 2, large, value, Graphics.TEXT_JUSTIFY_LEFT);
+        dc.drawText(left + leftWidth + 5 * scale, (y + 22) * scale - dc.getFontHeight(small) / 2,
+            small, "/100", Graphics.TEXT_JUSTIFY_LEFT);
+    }
+    function onUpdate(dc as Graphics.Dc) as Void {
+        var app = getApp();
+        var now = System.getTimer();
+        var sensor = app.sensors;
+        var alert = app.alerts;
+        var risk = app.result[:status] == :ready && now - app.result[:timestamp] <= Config.RESULT_FRESH_MS ? app.result[:riskScore] : null;
+        var value = risk == null ? "--" : (risk * 100).format("%.0f");
+        var high = alert.level == 2;
+        var warning = alert.level == 1 || (risk != null && risk >= Config.WARNING);
+        var flashing = alert.flashing(now);
+        var bg = high ? 0xFF0808 : (warning ? 0xFFDD00 : Graphics.COLOR_BLACK);
+        if (flashing) { bg = alert.bright(now) ? 0xFF0808 : Graphics.COLOR_BLACK; }
+        var fg = warning && !high && !flashing ? Graphics.COLOR_BLACK : Graphics.COLOR_WHITE;
+        var accent = warning || high ? fg : 0x00D9E8;
+        var muted = warning && !flashing ? 0x948100 : 0x354047;
+        dc.setColor(fg, bg);
+        dc.clear();
+        var hr = sensor.hr != null && sensor.fresh(sensor.hrAt, now) ? sensor.hr.format("%d") : "--";
+        var o2 = sensor.oxygen != null && sensor.fresh(sensor.oxygenAt, now) ? sensor.oxygen.format("%d") + "%" : "--";
+        var move = sensor.movement != null && sensor.fresh(sensor.accelAt, now) ? sensor.movement.format("%.0f") : "--";
+        if (high || warning) {
+            if (!high) { gauge(dc, risk, accent, muted); }
+            triangle(dc, 139, fg, bg);
+            if (high) { alertWaves(dc, fg); }
+            score(dc, value, 222, fg);
+            text(dc, 227, 294, 26, high ? "HIGH DROWSINESS" : "DROWSINESS RISING", fg);
+            text(dc, 227, 329, 29, high ? "STOP SAFELY" : "TAKE A BREAK", fg);
+            heart(dc, 155, 364, fg);
+            text(dc, 240, 367, 29, hr + " bpm", fg);
+            text(dc, 227, 393, 13, (app.demo != null ? "DEMO | " : "") + (!sensor.coreFresh(now) ? "SENSOR DATA MISSING" : "SpO2 " + o2 + "   Move " + move + " mg"), fg);
+            text(dc, 227, 414, 13, alert.acknowledged ? "ACKNOWLEDGED - ELEVATED" : "START: ACKNOWLEDGE", fg);
+        } else {
+            gauge(dc, risk, accent, muted);
+            text(dc, 227, 191, 100, value, fg);
+            text(dc, 227, 254, 26, "/100", 0xAAB7BC);
+            text(dc, 227, 290, risk == null ? 17 : 29, risk == null ? app.status(now) : "LOW", risk == null ? 0xAAB7BC : accent);
+            heart(dc, 148, 333, 0xFF3150);
+            text(dc, 240, 336, 32, hr + " bpm", fg);
+            text(dc, 227, 368, 15, app.demo != null ? "DEMO - SIMULATED RISK" : "HEART RATE", 0xAAB7BC);
+            text(dc, 227, 392, 15, "SpO2 " + o2 + "   Move " + move + " mg", 0xAAB7BC);
+            text(dc, 227, 414, 13, "MENU: OPTIONS", 0xAAB7BC);
+        }
     }
 }
