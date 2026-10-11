@@ -1,208 +1,348 @@
-"""Causal, webcam-reproducible video event features from 68-point landmarks.
+"""Facial feature extraction for the DrozyAI vision model.
 
-Source files are read only. Events are extracted at frame resolution before
-one-second aggregation. All time windows use past data, never future frames.
+Reads the pre-extracted facial landmarks (68 points, Dlib format) from
+the UL-DD dataset and produces one row per 60-second window with:
+
+    - Eye openness  : left_ear_mean, right_ear_mean
+    - Eye closure   : perclos, longest_closure_sec
+    - Blink timing  : blink_rate_per_min, blink_duration_mean,
+                      inter_blink_interval_mean
+    - Mouth opening : mar_mean, yawn_count, max_yawn_duration
+    - Tracking      : tracking_coverage
+
+The window layout matches src.features.watch_features (60-second
+window, 5-second step) so that the two feature tables can be joined
+on (subject, session, window_start).
+
+Input:
+    data/raw/Extracted_Features/Extracted_Features/{user}/{session}/
+        {user}_FL_{session}.csv   137 columns: Frame, X1, Y1, ..., X68, Y68
+
+Output:
+    data/processed/video_features.parquet
+
+Usage:
+    python -m src.features.video_features
 """
+
 from __future__ import annotations
 
-import hashlib
-import json
-from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
 
-@dataclass(frozen=True)
-class FeatureConfig:
-    fps: int = 60
-    session_seconds: int = 2400
-    calibration_seconds: int = 15
-    window_seconds: int = 60
-    stride_seconds: int = 5
-    eye_close_ratio: float = 0.65
-    eye_reopen_ratio: float = 0.75
-    blink_min_seconds: float = 0.08
-    blink_max_seconds: float = 0.8
-    mouth_open_ratio: float = 0.60
-    mouth_reclose_ratio: float = 0.45
-    mouth_event_min_seconds: float = 1.0
-    window_min_coverage: float = 0.90
-    second_min_coverage: float = 0.50
+# ----------------------------------------------------------------------
+# Configuration
+# ----------------------------------------------------------------------
+WINDOW_SECONDS = 60
+STEP_SECONDS = 5
+VIDEO_FPS = 60
+
+# Dlib 68-point landmark indices (1-based, matching CSV column names).
+# Right eye = points 37-42; Left eye = points 43-48.
+RIGHT_EYE = [37, 38, 39, 40, 41, 42]
+LEFT_EYE = [43, 44, 45, 46, 47, 48]
+
+# Mouth: outer corners 49 and 55; top and bottom of inner lip 63 and 67.
+MOUTH_LEFT = 49
+MOUTH_RIGHT = 55
+MOUTH_TOP = 63
+MOUTH_BOTTOM = 67
+
+# Threshold on EAR to declare the eye closed.
+EAR_CLOSED_THRESHOLD = 0.21
+# Threshold on MAR to declare a yawn.
+MAR_YAWN_THRESHOLD = 0.60
+
+# A blink is a closed interval between these two durations (in seconds).
+MIN_BLINK_SEC = 0.05
+MAX_BLINK_SEC = 0.50
+
+# A yawn must last at least this long (seconds).
+MIN_YAWN_SEC = 1.5
+
+FEATURE_COLUMNS = [
+    "left_ear_mean",
+    "right_ear_mean",
+    "perclos",
+    "longest_closure_sec",
+    "blink_rate_per_min",
+    "blink_duration_mean",
+    "inter_blink_interval_mean",
+    "mar_mean",
+    "yawn_count",
+    "max_yawn_duration",
+    "tracking_coverage",
+]
 
 
-CHANNELS = ["left_eye_openness", "right_eye_openness", "eye_closed_fraction",
-            "long_closure_fraction", "closure_age_seconds", "long_closure_count",
-            "blink_count", "blink_duration_sum_seconds", "blink_duration_max_seconds",
-            "mouth_ratio", "mouth_open_fraction", "mouth_age_seconds",
-            "mouth_event_count", "mouth_duration_sum_seconds", "valid_fraction"]
-FEATURES = ["left_eye_mean", "left_eye_variability", "right_eye_mean", "right_eye_variability",
-            "eye_asymmetry_mean", "eye_closed_fraction", "long_closure_fraction",
-            "longest_closure_seconds", "long_closures_per_minute", "blinks_per_minute",
-            "blink_duration_mean_seconds", "blink_duration_max_seconds",
-            "interblink_interval_mean_seconds", "mouth_ratio_mean", "mouth_ratio_variability",
-            "mouth_open_fraction", "longest_mouth_open_seconds", "mouth_events_per_minute",
-            "mouth_event_duration_mean_seconds", "valid_frame_fraction",
-            "eye_closure_trend", "mouth_open_trend"]
+# ----------------------------------------------------------------------
+# Landmark loading
+# ----------------------------------------------------------------------
+def _load_fl(path: Path) -> pd.DataFrame:
+    """Read an FL CSV. Returns DataFrame with columns Frame_Number, X1..Y68."""
+    if not path.exists():
+        raise FileNotFoundError(path)
+    return pd.read_csv(path)
 
 
-def file_hash(path):
-    digest = hashlib.sha256()
-    with Path(path).open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+def _point(df: pd.DataFrame, idx: int) -> np.ndarray:
+    """Return the (N, 2) array for landmark index idx (1-based)."""
+    return df[[f"X{idx}", f"Y{idx}"]].to_numpy(dtype=float)
 
 
-def landmark_ratios(raw):
-    """EAR for each eye and inner-mouth aspect ratio, invariant to image scale."""
-    def point(i):
-        return raw[[f"X{i}", f"Y{i}"]].to_numpy(dtype=float)
-    def distance(a, b):
-        return np.linalg.norm(point(a) - point(b), axis=1)
-    def divide(a, b):
-        return np.divide(a, b, out=np.full(len(raw), np.nan), where=b > 1e-6)
-    left = divide(distance(38, 42) + distance(39, 41), 2 * distance(37, 40))
-    right = divide(distance(44, 48) + distance(45, 47), 2 * distance(43, 46))
-    mouth = divide(distance(62, 68) + distance(63, 67) + distance(64, 66), 3 * distance(61, 65))
-    return np.column_stack([left, right, mouth])
+def _ear(eye_points: list[int], df: pd.DataFrame) -> np.ndarray:
+    """Eye Aspect Ratio for one eye. Returns an array of shape (N,).
 
+    EAR = (|p2 - p6| + |p3 - p5|) / (2 * |p1 - p4|)
 
-def frame_events(left, right, mouth, valid, config):
-    """Hysteresis state machines; invalid frames break runs and censor events.
-
-    A blink is counted only when reopening is observed. An ongoing closure's
-    age is available immediately, but its final duration is never backfilled.
+    With Dlib indexing for a 6-point eye:
+        p1 = corner 1, p2 = top 1, p3 = top 2,
+        p4 = corner 2, p5 = bottom 2, p6 = bottom 1
     """
-    fps = config.fps
-    values = np.zeros((len(left), len(CHANNELS)), dtype=np.float32)
-    values[:, 0] = np.where(valid, left, 0)
-    values[:, 1] = np.where(valid, right, 0)
-    values[:, 9] = np.where(valid, mouth, 0)
-    values[:, 14] = valid
-    eye_start = mouth_start = None
-    eye_censored = mouth_censored = True
-    blink_ends = []
-    for i in range(len(left)):
-        if not valid[i]:
-            eye_start = mouth_start = None
-            eye_censored = mouth_censored = True
+    p1 = _point(df, eye_points[0])
+    p2 = _point(df, eye_points[1])
+    p3 = _point(df, eye_points[2])
+    p4 = _point(df, eye_points[3])
+    p5 = _point(df, eye_points[4])
+    p6 = _point(df, eye_points[5])
+
+    v1 = np.linalg.norm(p2 - p6, axis=1)
+    v2 = np.linalg.norm(p3 - p5, axis=1)
+    h = 2.0 * np.linalg.norm(p1 - p4, axis=1)
+    ear = np.where(h > 1e-6, (v1 + v2) / h, np.nan)
+    return ear
+
+
+def _mar(df: pd.DataFrame) -> np.ndarray:
+    """Mouth Aspect Ratio. Returns an array of shape (N,)."""
+    left = _point(df, MOUTH_LEFT)
+    right = _point(df, MOUTH_RIGHT)
+    top = _point(df, MOUTH_TOP)
+    bottom = _point(df, MOUTH_BOTTOM)
+    horizontal = np.linalg.norm(left - right, axis=1)
+    vertical = np.linalg.norm(top - bottom, axis=1)
+    mar = np.where(horizontal > 1e-6, vertical / horizontal, np.nan)
+    return mar
+
+
+# ----------------------------------------------------------------------
+# Event detection
+# ----------------------------------------------------------------------
+def _count_blinks(closed_mask: np.ndarray) -> tuple[int, float, float]:
+    """Detect blinks from a boolean 'eyes closed' mask.
+
+    A blink is a run of closed frames lasting between MIN_BLINK_SEC and
+    MAX_BLINK_SEC.
+
+    Returns (n_blinks, mean_duration_sec, mean_inter_blink_sec).
+    """
+    # Find start and end of each closed run
+    runs = []
+    n = len(closed_mask)
+    i = 0
+    while i < n:
+        if closed_mask[i]:
+            start = i
+            while i < n and closed_mask[i]:
+                i += 1
+            end = i
+            duration_sec = (end - start) / VIDEO_FPS
+            if MIN_BLINK_SEC <= duration_sec <= MAX_BLINK_SEC:
+                runs.append((start, end, duration_sec))
+        else:
+            i += 1
+
+    if not runs:
+        return 0, float("nan"), float("nan")
+
+    durations = [r[2] for r in runs]
+    starts = [r[0] for r in runs]
+    intervals = [
+        (starts[k + 1] - starts[k]) / VIDEO_FPS for k in range(len(starts) - 1)
+    ]
+    return (
+        len(runs),
+        float(np.mean(durations)),
+        float(np.mean(intervals)) if intervals else float("nan"),
+    )
+
+
+def _longest_closure(closed_mask: np.ndarray) -> float:
+    """Longest run of consecutive closed frames, in seconds."""
+    longest = 0
+    current = 0
+    for v in closed_mask:
+        if v:
+            current += 1
+            longest = max(longest, current)
+        else:
+            current = 0
+    return longest / VIDEO_FPS
+
+
+def _count_yawns(yawn_mask: np.ndarray) -> tuple[int, float]:
+    """Detect yawns from a boolean 'mouth open' mask.
+
+    A yawn is a run of open frames lasting at least MIN_YAWN_SEC.
+
+    Returns (n_yawns, max_duration_sec).
+    """
+    runs = []
+    n = len(yawn_mask)
+    i = 0
+    while i < n:
+        if yawn_mask[i]:
+            start = i
+            while i < n and yawn_mask[i]:
+                i += 1
+            end = i
+            duration_sec = (end - start) / VIDEO_FPS
+            if duration_sec >= MIN_YAWN_SEC:
+                runs.append(duration_sec)
+        else:
+            i += 1
+    if not runs:
+        return 0, float("nan")
+    return len(runs), float(max(runs))
+
+
+# ----------------------------------------------------------------------
+# Per-window feature computation
+# ----------------------------------------------------------------------
+def _window_features(
+    left_ear: np.ndarray,
+    right_ear: np.ndarray,
+    mar: np.ndarray,
+    frame_valid: np.ndarray,
+) -> dict[str, float]:
+    """Compute the 11 facial features over one 60-second window."""
+
+    # Tracking coverage
+    coverage = float(np.mean(frame_valid)) if len(frame_valid) else float("nan")
+
+    # Eyes
+    ear_mean = np.nanmean(
+        np.vstack([left_ear, right_ear]), axis=0
+    )  # average of both eyes per frame
+    closed_mask = (ear_mean < EAR_CLOSED_THRESHOLD) & frame_valid
+    perclos = float(np.mean(closed_mask)) if len(closed_mask) else float("nan")
+    longest_closure = _longest_closure(closed_mask)
+
+    # Blinks
+    n_blinks, blink_dur, inter_blink = _count_blinks(closed_mask)
+    window_minutes = len(closed_mask) / (VIDEO_FPS * 60.0)
+    blink_rate = n_blinks / window_minutes if window_minutes > 0 else float("nan")
+
+    # Mouth
+    yawn_mask = (mar > MAR_YAWN_THRESHOLD) & frame_valid
+    n_yawns, max_yawn = _count_yawns(yawn_mask)
+
+    return {
+        "left_ear_mean": float(np.nanmean(left_ear)),
+        "right_ear_mean": float(np.nanmean(right_ear)),
+        "perclos": perclos,
+        "longest_closure_sec": longest_closure,
+        "blink_rate_per_min": blink_rate,
+        "blink_duration_mean": blink_dur,
+        "inter_blink_interval_mean": inter_blink,
+        "mar_mean": float(np.nanmean(mar)),
+        "yawn_count": float(n_yawns),
+        "max_yawn_duration": max_yawn,
+        "tracking_coverage": coverage,
+    }
+
+
+# ----------------------------------------------------------------------
+# Public API
+# ----------------------------------------------------------------------
+def build_features_for_session(
+    user: str, session: str, root: Path
+) -> pd.DataFrame:
+    """Build the facial feature table for one (user, session)."""
+    fl_path = root / user / session / f"{user}_FL_{session}.csv"
+    df = _load_fl(fl_path)
+
+    # Valid frames: no NaN in the required landmarks
+    required_cols = []
+    for idx in RIGHT_EYE + LEFT_EYE + [MOUTH_LEFT, MOUTH_RIGHT, MOUTH_TOP, MOUTH_BOTTOM]:
+        required_cols.extend([f"X{idx}", f"Y{idx}"])
+    frame_valid = ~df[required_cols].isna().any(axis=1).to_numpy()
+
+    left_ear = _ear(LEFT_EYE, df)
+    right_ear = _ear(RIGHT_EYE, df)
+    mar = _mar(df)
+
+    # Window loop: 60 s with 5 s step at 60 fps
+    window_frames = WINDOW_SECONDS * VIDEO_FPS
+    step_frames = STEP_SECONDS * VIDEO_FPS
+    n = len(df)
+    records = []
+    for start in range(0, n - window_frames + 1, step_frames):
+        end = start + window_frames
+        feats = _window_features(
+            left_ear[start:end],
+            right_ear[start:end],
+            mar[start:end],
+            frame_valid[start:end],
+        )
+        records.append(
+            {
+                "subject": user,
+                "session": session,
+                "window_start": start // VIDEO_FPS,
+                "window_end": end // VIDEO_FPS,
+                **feats,
+            }
+        )
+    return pd.DataFrame(records)
+
+
+def build_feature_table(root: Path) -> pd.DataFrame:
+    """Build the facial feature table for all (user, session) pairs."""
+    frames = []
+    for user_dir in sorted(root.iterdir()):
+        if not user_dir.is_dir() or len(user_dir.name) != 1:
             continue
-        if eye_start is None:
-            if max(left[i], right[i]) < config.eye_close_ratio:
-                eye_start = i
-            elif min(left[i], right[i]) > config.eye_reopen_ratio:
-                eye_censored = False
-        elif min(left[i], right[i]) > config.eye_reopen_ratio:
-            duration = (i - eye_start) / fps
-            if not eye_censored and config.blink_min_seconds <= duration <= config.blink_max_seconds:
-                values[i, 6:9] = [1, duration, duration]
-                blink_ends.append(i / fps)
-            eye_start = None
-            eye_censored = False
-        if eye_start is not None:
-            age = (i - eye_start + 1) / fps
-            values[i, 2] = 1
-            values[i, 3] = age > config.blink_max_seconds
-            values[i, 4] = age
-            if not eye_censored and (i - eye_start) / fps <= config.blink_max_seconds < age:
-                values[i, 5] = 1
-        if mouth_start is None:
-            if mouth[i] > config.mouth_open_ratio:
-                mouth_start = i
-            elif mouth[i] < config.mouth_reclose_ratio:
-                mouth_censored = False
-        elif mouth[i] < config.mouth_reclose_ratio:
-            duration = (i - mouth_start) / fps
-            if not mouth_censored and duration >= config.mouth_event_min_seconds:
-                values[i, 12:14] = [1, duration]
-            mouth_start = None
-            mouth_censored = False
-        if mouth_start is not None:
-            values[i, 10] = 1
-            values[i, 11] = (i - mouth_start + 1) / fps
-    return values, np.asarray(blink_ends)
+        for session_dir in sorted(user_dir.iterdir()):
+            if not session_dir.is_dir() or len(session_dir.name) != 1:
+                continue
+            user = user_dir.name
+            session = session_dir.name
+            try:
+                df = build_features_for_session(user, session, root)
+                frames.append(df)
+                print(f"  {user}/{session}: {len(df)} windows")
+            except FileNotFoundError as exc:
+                print(f"  {user}/{session}: SKIP ({exc})")
+    if not frames:
+        return pd.DataFrame()
+    return pd.concat(frames, ignore_index=True)
 
 
-def aggregate_seconds(frame_values, config):
-    grid = frame_values.reshape(config.session_seconds, config.fps, len(CHANNELS))
-    seconds = np.zeros((config.session_seconds, len(CHANNELS)), dtype=np.float32)
-    valid_count = grid[:, :, 14].sum(axis=1)
-    for j in (0, 1, 2, 3, 9, 10):
-        seconds[:, j] = np.divide(grid[:, :, j].sum(axis=1), valid_count,
-                                   out=np.zeros(config.session_seconds), where=valid_count > 0)
-    for j in (4, 8, 11):
-        seconds[:, j] = grid[:, :, j].max(axis=1)
-    for j in (5, 6, 7, 12, 13):
-        seconds[:, j] = grid[:, :, j].sum(axis=1)
-    seconds[:, 14] = valid_count / config.fps
-    return seconds
+# ----------------------------------------------------------------------
+# CLI entry point
+# ----------------------------------------------------------------------
+def main() -> None:
+    in_root = Path("data/raw/Extracted_Features/Extracted_Features")
+    out_path = Path("data/processed/video_features.parquet")
+
+    print(f"Scanning {in_root} ...")
+    features = build_feature_table(in_root)
+    print(f"  Total: {len(features)} windows")
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    features.to_parquet(out_path, index=False)
+    print(f"Wrote {out_path}")
+
+    print("\nFeature summary:")
+    print(features[FEATURE_COLUMNS].describe())
+
+    print("\nMissing values:")
+    print(features[FEATURE_COLUMNS].isna().sum())
 
 
-def summarize_window(sequence, blink_times, start_second, config):
-    """Readable tabular features; all state ages are bounded to the window size."""
-    weights = sequence[:, 14]
-    observed_seconds = weights.sum()
-    def mean(j):
-        return float(np.average(sequence[:, j], weights=weights))
-    def std(j):
-        return float(np.sqrt(np.average((sequence[:, j] - mean(j)) ** 2, weights=weights)))
-    blink_count = sequence[:, 6].sum()
-    mouth_count = sequence[:, 12].sum()
-    events = blink_times[(blink_times >= start_second) & (blink_times < start_second + len(sequence))]
-    half = len(sequence) // 2
-    def trend(j):
-        return float(np.average(sequence[half:, j], weights=weights[half:]) -
-                     np.average(sequence[:half, j], weights=weights[:half]))
-    result = [mean(0), std(0), mean(1), std(1),
-        float(np.average(np.abs(sequence[:, 0] - sequence[:, 1]), weights=weights)),
-        mean(2), mean(3), float(min(sequence[:, 4].max(), config.window_seconds)),
-        float(sequence[:, 5].sum() / observed_seconds * 60),
-        float(blink_count / observed_seconds * 60),
-        float(sequence[:, 7].sum() / blink_count) if blink_count else 0.0,
-        float(sequence[:, 8].max()), float(np.diff(events).mean()) if len(events) >= 2 else 0.0,
-        mean(9), std(9), mean(10), float(min(sequence[:, 11].max(), config.window_seconds)),
-        float(mouth_count / observed_seconds * 60),
-        float(sequence[:, 13].sum() / mouth_count) if mouth_count else 0.0,
-        float(weights.mean()), trend(2), trend(10)]
-    return dict(zip(FEATURES, result))
-
-
-def extract_68point_window(frames: np.ndarray) -> dict:
-    """Extract the final trailing window from a 60 FPS 68-point time grid.
-
-    Input shape is [frames, 68, 2], in image-plane coordinates, with at least
-    75 complete seconds: 15 seconds of initial calibration and 60 seconds of
-    history. Missing frames must occupy their original grid slot as NaNs.
-    This is a feature adapter for the training landmark layout, not a direct
-    adapter for the dashboard's MediaPipe blendshapes or its sparse points.
-    The caller is responsible for matching the capture clock and geometry.
-    """
-    raw = np.asarray(frames, dtype=float)
-    if raw.ndim != 3 or raw.shape[1:] != (68, 2) or len(raw) < 75 * 60 or len(raw) % 60:
-        raise ValueError("Expected [N, 68, 2], with N >= 4500 and N divisible by 60")
-    config = FeatureConfig(session_seconds=len(raw) // 60)
-    points = [*range(37, 49), *range(61, 69)]
-    table = pd.DataFrame({f"{axis}{i}": raw[:, i - 1, j]
-                          for i in points for j, axis in enumerate("XY")})
-    ratios = landmark_ratios(table)
-    valid = np.isfinite(ratios).all(axis=1)
-    valid &= (ratios[:, :2] > 0.02).all(axis=1) & (ratios[:, :2] < 1.0).all(axis=1)
-    valid &= (ratios[:, 2] >= 0) & (ratios[:, 2] <= 2.0)
-    warmup = config.calibration_seconds * config.fps
-    if valid[:warmup].sum() < 0.8 * warmup:
-        raise ValueError("Insufficient initial calibration coverage")
-    reference = np.quantile(ratios[:warmup, :2][valid[:warmup]], 0.9, axis=0)
-    if (reference < 0.1).any():
-        raise ValueError("Implausible eye calibration reference")
-    eyes = np.clip(ratios[:, :2] / reference, 0, 2)
-    events, blink_times = frame_events(eyes[:, 0], eyes[:, 1], ratios[:, 2], valid, config)
-    seconds = aggregate_seconds(events, config)
-    seconds[:, [4, 11]] = np.minimum(seconds[:, [4, 11]], config.window_seconds)
-    window = seconds[-config.window_seconds:]
-    if window[:, 14].mean() < config.window_min_coverage or window[:, 14].min() < config.second_min_coverage:
-        raise ValueError("Insufficient observed coverage in trailing window")
-    start_second = len(seconds) - config.window_seconds
-    return {"channels": list(CHANNELS), "sequence": window.T.tolist(),
-            "features": summarize_window(window, blink_times, start_second, config)}
+if __name__ == "__main__":
+    main()
