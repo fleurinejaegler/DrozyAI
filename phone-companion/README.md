@@ -1,5 +1,10 @@
 # DrowsyRelay iPhone companion
 
+For the Garmin-to-MacBook sensor-only milestone, use
+[the FastAPI receiver and existing watch HTTPS uploader](../server/README.md).
+That path needs normal Garmin Connect on the phone, and does not require this
+custom iPhone app or Xcode. This companion remains the separate camera/model relay.
+
 This app connects the existing DrowsyAlert Forerunner 970 app to your team's Python model and website. It uses Garmin's native iOS SDK for Bluetooth, a bundled website for phone monitoring/manual controls, and a small local HTTP relay for the Python model. No trained model is included, and no teammate model files were edited.
 
 ```

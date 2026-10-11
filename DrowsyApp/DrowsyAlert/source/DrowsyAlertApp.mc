@@ -8,6 +8,7 @@ import Toybox.WatchUi;
 class DrowsyAlertApp extends Application.AppBase {
     var sensors as SensorCollector; var features as FeatureCollector; var model as ModelAdapter; var alerts as AlertController; var ticker as Timer.Timer;
     var phone as PhoneAlertBridge;
+    var computer as ComputerUplink;
     var externalModel = false; var testData as TestDataReplay? = null; var demo = null; var result as Dictionary;
     var lastFeatureTick = 0; var lastEvaluation = 0; var foreground = true;
     var displayWakeBlocked = false;
@@ -15,12 +16,14 @@ class DrowsyAlertApp extends Application.AppBase {
         AppBase.initialize();
         sensors = new SensorCollector(); features = new FeatureCollector();
         model = new ModelAdapter(); alerts = new AlertController(); ticker = new Timer.Timer();
+        computer = new ComputerUplink();
         phone = new PhoneAlertBridge(Time.now().value().toString() + "-" + System.getTimer().toString());
         result = { :riskScore => null, :status => :model_not_connected, :timestamp => 0, :modelVersion => "not-connected" };
     }
     function onStart(state as Dictionary?) as Void {
         var now = System.getTimer();
         features.restartBaseline(now); lastFeatureTick = now; lastEvaluation = now;
+        computer.load();
         sensors.start(); phone.start(); ticker.start(method(:tick), 500, true);
     }
     function tick() as Void {
@@ -34,6 +37,8 @@ class DrowsyAlertApp extends Application.AppBase {
         alerts.tick(now); phone.tick(now);
         refreshAlarmDisplay(now);
         phone.sendTelemetry(sensors, now, isTestMode());
+        sensors.pollUploadTemperature(now);
+        computer.tick(sensors,now,isTestMode(),foreground);
         if (foreground) { WatchUi.requestUpdate(); }
     }
     function refreshAlarmDisplay(now) {
@@ -143,7 +148,7 @@ class DrowsyAlertApp extends Application.AppBase {
         if (result[:riskScore] >= Config.WARNING) { return "Warning - confirming"; }
         return "Low estimated risk";
     }
-    function onStop(state as Dictionary?) as Void { ticker.stop(); alerts.stop(); phone.stop(); sensors.stop(); }
+    function onStop(state as Dictionary?) as Void { ticker.stop(); computer.cancel(); alerts.stop(); phone.stop(); sensors.stop(); }
     function getInitialView() as [Views] or [Views, InputDelegates] {
         return [new DrowsyAlertView(), new DrowsyAlertDelegate()];
     }

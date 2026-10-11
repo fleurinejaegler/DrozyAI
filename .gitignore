@@ -76,6 +76,8 @@ web/session-exports/
 *.prg
 *.prg.debug.xml
 *.iq
+/.codex-task-cache/
+/server/data/
 
 # iPhone companion build output and local Xcode settings
 /phone-companion/DerivedData/

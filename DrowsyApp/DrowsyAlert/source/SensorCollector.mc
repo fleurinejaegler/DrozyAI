@@ -1,6 +1,8 @@
 import Toybox.Sensor;
 import Toybox.System;
 import Toybox.Math;
+import Toybox.SensorHistory;
+import Toybox.Time;
 class SensorCollector {
     var hr = null;
     var hrAt = null;
@@ -23,10 +25,53 @@ class SensorCollector {
     var temperatureAt = null;
     var gyroRate = 0;
     var telemetry as TelemetryCollector;
-    function initialize() { telemetry = new TelemetryCollector(); }
+    var uploadBuffer as UploadBuffer;
+    var externalHeart = true; var externalTemperature = true;
+    var ibiReceivedAt = null; var uploadTemperature = null; var uploadTemperatureEpoch = null;
+    var uploadTemperatureAt = null; var lastHistoryEpoch = null; var lastHistoryPoll = null;
+    function initialize() { telemetry = new TelemetryCollector(); uploadBuffer = new UploadBuffer(); }
+    function checkSources() {
+        // Conservative: any registered external sensor blocks that source, even if inactive.
+        externalHeart = true; externalTemperature = true;
+        try {
+            externalHeart = Sensor.getRegisteredSensors(Sensor.SENSOR_HEARTRATE).next()!=null;
+            externalTemperature = Sensor.getRegisteredSensors(Sensor.SENSOR_TEMPERATURE).next()!=null;
+        } catch (ex) { System.println("Onboard source check unavailable; HR/IBI/temperature uploads blocked"); }
+    }
+    function pollUploadTemperature(now) {
+        if (!uploadBuffer.recording || (lastHistoryPoll!=null && now-lastHistoryPoll<5000)) { return; }
+        lastHistoryPoll=now; checkSources();
+        if (externalTemperature) { uploadTemperature=null; return; }
+        var sample=null;
+        try {
+            if (SensorHistory has :getTemperatureHistory) {
+                sample=SensorHistory.getTemperatureHistory({:period=>1,:order=>SensorHistory.ORDER_NEWEST_FIRST}).next();
+            }
+        } catch (ex) {}
+        if (sample!=null && sample.data!=null && sample.when!=null) {
+            var epoch=sample.when.value();
+            if (epoch!=lastHistoryEpoch) {
+                uploadTemperature=sample.data; uploadTemperatureEpoch=epoch; uploadTemperatureAt=now; lastHistoryEpoch=epoch;
+                uploadBuffer.addTemperature(now,sample.data,"watch_onboard_history",epoch);
+            }
+        } else {
+            uploadTemperature=fresh(temperatureAt,now) ? temperature : null;
+            uploadTemperatureEpoch=null; uploadTemperatureAt=now;
+            uploadBuffer.addTemperature(now,uploadTemperature,"watch_sensor_info_no_external",null);
+        }
+    }
+    function uploadAvailability(now) as Toybox.Lang.Dictionary {
+        var tempFresh=uploadTemperature!=null && uploadTemperatureAt!=null && now-uploadTemperatureAt<=300000;
+        if (uploadTemperatureEpoch!=null) { var age=Time.now().value()-uploadTemperatureEpoch; tempFresh=tempFresh && age>=0 && age<=300; }
+        return {"heart_rate"=>externalHeart ? "external_blocked" : (fresh(hrAt,now) ? "receiving" : "unavailable"),
+            "accelerometer"=>fresh(accelAt,now) ? "receiving" : "unavailable",
+            "ibi"=>externalHeart ? "external_blocked" : (fresh(ibiReceivedAt,now) ? "receiving" : "unavailable"),
+            "temperature"=>externalTemperature ? "external_blocked" : (tempFresh ? "receiving" : "unavailable")};
+    }
     function start() {
         if (running) { return; }
         running = true;
+        checkSources();
         try {
             Sensor.setEnabledSensors([Sensor.SENSOR_HEARTRATE]);
             Sensor.enableSensorEvents(method(:onInfo));
@@ -70,6 +115,7 @@ class SensorCollector {
         hr = info.heartRate;
         hrAt = (hr != null && hr > 0) ? now : null;
         if (hrAt == null) { hr = null; }
+        if (uploadBuffer.recording) { checkSources(); uploadBuffer.addHeart(now,externalHeart ? null : hr); }
         if (info has :oxygenSaturation) {
             oxygen = info.oxygenSaturation;
             oxygenAt = (oxygen != null && oxygen > 0 && oxygen <= 100) ? now : null;
@@ -82,6 +128,7 @@ class SensorCollector {
         telemetry.collect(data, now, sampleRate, gyroRate);
         var accel = data.accelerometerData;
         if (accel != null) {
+            uploadBuffer.addAxes(accel.x,accel.y,accel.z,accel.timestamp,now,sampleRate);
             var count = Config.min(accel.x.size(), Config.min(accel.y.size(), accel.z.size())).toNumber();
             var batchSum = 0.0; var batchN = 0;
             for (var i = 0; i < count; i += 1) {
@@ -100,6 +147,11 @@ class SensorCollector {
             if (batchN > 0) { accelAt = now; movement = batchSum / batchN; }
         }
         var rate = data.heartRateData;
+        if (uploadBuffer.recording) {
+            var raw = !externalHeart && rate!=null ? rate.heartBeatIntervals : null;
+            uploadBuffer.addIntervals(raw,now);
+            ibiReceivedAt=raw!=null && raw.size()>0 ? now : null;
+        }
         if (rate != null) {
             if (rrAt == null || now - rrAt > Config.SENSOR_FRESH_MS) { previousRR = null; }
             var intervals = rate.heartBeatIntervals;

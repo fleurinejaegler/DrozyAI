@@ -75,6 +75,56 @@ function testTelemetry(logger) {
     return true;
 }
 (:test)
+function testUploadBuffer(logger) {
+    var b=new UploadBuffer();
+    b.addHeart(1000,72); Test.assertEqual(b.heart.size(),0);
+    b.recording=true;
+    for (var i=0; i<40; i+=1) { b.addHeart(1000+i*1000,i==5 ? null : 72); }
+    Test.assertEqual(b.heart.size(),32); Test.assertEqual(b.dropped["heart_rate"],8);
+    for (var j=0; j<12; j+=1) { b.addAxes([1,2],[3,4],[1000,1001],[j*80,j*80+40],1000+j*1000,25); }
+    Test.assertEqual(b.acceleration.size(),10); Test.assertEqual(b.dropped["accelerometer"],4);
+    var raw=[1000,null,250,1100]; b.addIntervals(raw,13000); raw[0]=1500;
+    var p=b.packet("fixture",1,1000,0,50000,{},5);
+    Test.assertEqual(p["accelerometer"].size(),5); Test.assertEqual(b.acceleration.size(),5);
+    Test.assertEqual(p["heart_rate"].size(),5); Test.assertEqual(b.heart.size(),27);
+    Test.assert(p["ibi"][0]["values_ms"][1]==null); Test.assertEqual(p["ibi"][0]["values_ms"][2],250);
+    Test.assertEqual(p["ibi"][0]["values_ms"][0],1000);
+    b.expire(p); Test.assertEqual(b.dropped["expired_batches"],1);
+    Test.assertEqual(b.dropped["accelerometer"],14);
+    // Snapshot counters and data must not change when live buffers keep collecting.
+    Test.assertEqual(p["dropped"]["heart_rate"],8);
+    b.clearWithDrops(); Test.assertEqual(b.acceleration.size(),0);
+    return true;
+}
+(:test)
+function testComputerUploadState(logger) {
+    var s=new SensorCollector(); var u=new ComputerUplink();
+    u.transportEnabled=false; u.enabled=true; u.endpoint="https://offline.invalid/garmin/data"; u.token="offline-test-token";
+    u.tick(s,1000,false,true); Test.assert(u.busy); var first=u.pending;
+    var attempt=u.generation;
+    s.uploadBuffer.addHeart(1500,72);
+    u.tick(s,2000,false,true); Test.assertEqual(u.generation,attempt); // no overlap
+    u.onResponse(503,null,attempt); Test.assert(!u.busy); Test.assert(u.pending==first);
+    u.nextAttempt=0; u.tick(s,3000,false,true); Test.assert(u.busy);
+    var active=u.generation;
+    u.onResponse(200,{"status"=>"accepted","session"=>u.session,"batch_id"=>1},attempt);
+    Test.assert(u.busy); // obsolete callback ignored
+    u.onResponse(200,{"status"=>"accepted","session"=>u.session,"batch_id"=>1},active);
+    Test.assert(!u.busy); Test.assert(u.pending==null); Test.assert(u.lastUpload!=null);
+    u.nextAttempt=0; u.tick(s,4000,false,true); Test.assert(u.busy);
+    u.tick(s,5000,true,true); Test.assert(!u.busy); Test.assert(u.pending==null);
+    Test.assert(!s.uploadBuffer.recording); Test.assertEqual(s.uploadBuffer.heart.size(),0);
+    u.tick(s,6000,false,false); Test.assert(!u.busy); // no foreground request
+    u.tick(s,7000,false,true); Test.assert(u.busy);
+    u.tick(s,38000,false,true); Test.assert(!u.busy); // timeout cancels before retry
+    var frozen=u.pending;
+    u.nextAttempt=0; u.tick(s,130000,false,true);
+    Test.assertEqual(s.uploadBuffer.dropped["expired_batches"],2);
+    Test.assert(u.pending!=frozen);
+    u.cancel();
+    return true;
+}
+(:test)
 function testAlarmCadence(logger) {
     var a = new AlertController(); a.signalEnabled = false;
     a.triggerExternal(1, 1000); a.tick(1000);
