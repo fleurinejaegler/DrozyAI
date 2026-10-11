@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+    <key>CFBundleDevelopmentRegion</key><string>en</string>
+    <key>CFBundleDisplayName</key><string>DrowsyRelay</string>
+    <key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>
+    <key>CFBundleIdentifier</key><string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+    <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+    <key>CFBundleName</key><string>$(PRODUCT_NAME)</string>
+    <key>CFBundlePackageType</key><string>APPL</string>
+    <key>CFBundleShortVersionString</key><string>1.0</string>
+    <key>CFBundleVersion</key><string>1</string>
+    <key>CFBundleURLTypes</key><array><dict><key>CFBundleURLSchemes</key><array><string>drowsyrelay-ciq</string></array></dict></array>
+    <key>LSApplicationQueriesSchemes</key><array><string>gcm-ciq</string></array>
+    <key>NSBluetoothAlwaysUsageDescription</key><string>Connect to your Garmin watch to relay live readings and drowsiness alerts.</string>
+    <key>NSBluetoothPeripheralUsageDescription</key><string>Exchange readings and alerts with your Garmin watch.</string>
+    <key>NSCameraUsageDescription</key><string>Let the local website analyze facial video for your team's drowsiness model.</string>
+    <key>NSLocalNetworkUsageDescription</key><string>Send live watch readings to your laptop's local model relay and receive drowsiness decisions.</string>
+    <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/><key>NSAllowsArbitraryLoads</key><false/></dict>
+    <key>UILaunchScreen</key><dict/>
+    <key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string></array>
+    <key>UIRequiresFullScreen</key><true/>
+</dict></plist>

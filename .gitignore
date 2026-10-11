@@ -57,3 +57,9 @@ models/*.pt
 *.prg
 *.prg.debug.xml
 *.iq
+
+# iPhone companion build output and local Xcode settings
+/phone-companion/DerivedData/
+/phone-companion/build/
+xcuserdata/
+*.xcuserstate

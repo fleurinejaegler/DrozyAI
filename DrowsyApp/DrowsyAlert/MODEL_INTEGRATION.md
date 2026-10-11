@@ -314,7 +314,7 @@ The hook validates results through the shared AlertController and requires fresh
 actual core sensor data. Once invoked it prevents the unconnected local adapter
 from overwriting received results; sensor loss and result timeout still clear the
 score and retain an active warning. Return to live leaves this receiver mode.
-The generic watch-score hook has no transport attached. The separate phone-camera Bluetooth alert transport is documented in PHONE_BLUETOOTH.md and does not call this score hook. A Python model
+The watch-score hook is now connected to the phone relay model_result message. The separate camera-alert transport does not overwrite this score. See ../../phone-companion/RELAY_CONTRACT.md. A Python model
 cannot send directly to this hook without a watch-compatible receiver/companion.
 The teammate must agree on sensor export, transport, timestamps, inference window,
 feature schema and missing-data rules before remote integration is complete.
@@ -323,3 +323,9 @@ VS Code launch: open a .mc file in this project, use Run -> Run Without Debuggin
 (Ctrl+F5), select Monkey C and fr970 if prompted. Simulator: focus window, Shift+M opens
 MENU, arrows select, Enter starts/acknowledges. The previous guide's command-palette
 name "Monkey C: Run Without Debugging" was incorrect; use VS Code's Run command.
+
+Remote vitals inference is now connected through `PhoneAlertBridge`'s `model_result`
+message and the DrowsyRelay companion app. See `../../phone-companion/RELAY_CONTRACT.md`.
+The receiver translates original UTC capture age to watch uptime, checks core sensor
+freshness, and limits evaluations to five-second intervals. Python still runs on the
+laptop; its actual model/schema/preprocessing remain your teammate's responsibility.

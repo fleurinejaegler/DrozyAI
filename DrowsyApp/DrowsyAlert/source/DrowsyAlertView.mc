@@ -123,7 +123,7 @@ class DrowsyAlertView extends WatchUi.View {
             gauge(dc, risk, accent, muted);
             text(dc, 227, 191, 100, value, fg);
             text(dc, 227, 254, 26, "/100", 0xAAB7BC);
-            text(dc, 227, 290, risk == null ? 17 : 29, risk == null ? app.status(now) : "LOW", risk == null ? 0xAAB7BC : accent);
+            text(dc, 227, 290, risk == null ? 17 : 29, risk == null ? app.status(now) : (risk >= Config.WARNING ? "CONFIRMING" : "LOW"), risk == null ? 0xAAB7BC : accent);
             heart(dc, 148, 333, 0xFF3150);
             text(dc, 240, 336, 32, hr + " bpm", fg);
             text(dc, 227, 368, 15, app.isTestMode() ? "TEST - SIMULATED DATA" : "HEART RATE", 0xAAB7BC);

@@ -65,15 +65,21 @@ class DrowsyAlertApp extends Application.AppBase {
             WatchUi.requestUpdate(); return false;
         }
         var accepted = alerts.evaluate(payload, now);
-        result = accepted ? payload : model.resultFromScore(null, now, payload[:modelVersion]);
+        result = accepted ? payload : { :riskScore => null, :timestamp => payload[:timestamp],
+            :status => payload[:status] == :ready ? :insufficient_data : payload[:status], :modelVersion => payload[:modelVersion] };
         alerts.tick(now); WatchUi.requestUpdate(); return accepted;
+    }
+    function invalidateRemoteModelResult() {
+        externalModel = true; alerts.invalidate();
+        result[:riskScore] = null; result[:status] = :insufficient_data;
     }
     function displayAlerts() as AlertController {
         return phone.alerts.level >= alerts.level && phone.alerts.level > 0 ? phone.alerts : alerts;
     }
     function phoneAlertVisible() { return phone.alerts.level > 0 && phone.alerts.level >= alerts.level; }
     function acknowledgeAlerts(now) {
-        alerts.acknowledge(now); phone.acknowledge(now); WatchUi.requestUpdate();
+        var modelAcknowledged = alerts.acknowledge(now);
+        phone.acknowledgeAll(now, modelAcknowledged && externalModel && !isTestMode()); WatchUi.requestUpdate();
     }
     function isTestMode() { return demo != null || testData != null; }
     function replayTestData() {
@@ -112,7 +118,10 @@ class DrowsyAlertApp extends Application.AppBase {
         if (demo != null) { return "DEMO - awaiting threshold"; }
         if (!sensors.coreFresh(now)) { return "Sensor data missing"; }
         if (testData != null) { return "TEST DATA REPLAY"; }
-        if (externalModel && result[:status] == :ready) { return result[:riskScore] >= Config.WARNING ? "Warning - confirming" : "Low estimated risk"; }
+        if (externalModel) {
+            if (result[:status] == :ready) { return result[:riskScore] >= Config.WARNING ? "Warning - confirming" : "Low estimated risk"; }
+            return result[:status] == :model_not_connected ? "Model not connected" : "Sensor data missing";
+        }
         if (features.baseline == null) { return "Collecting baseline"; }
         if (result[:status] == :model_not_connected) { return "Model not connected"; }
         if (result[:status] != :ready || result[:riskScore] == null) { return "Sensor data missing"; }

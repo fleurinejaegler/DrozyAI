@@ -2,6 +2,46 @@ import Toybox.Test;
 import Toybox.Lang;
 import Toybox.Math;
 (:test)
+class TestRemoteScoreSink {
+    var alerts as AlertController;
+    var received as Dictionary? = null;
+    var now = 0;
+    function initialize() { alerts = new AlertController(); alerts.signalEnabled = false; }
+    function accept(result as Dictionary) { received = result; return alerts.evaluate(result, now); }
+    function invalidate() { alerts.invalidate(); }
+}
+(:test)
+function testRemoteModelBridge(logger) {
+    var bridge = new PhoneAlertBridge("relay-session"); bridge.transportEnabled = false;
+    var sink = new TestRemoteScoreSink(); bridge.modelSink = sink.method(:accept);
+    bridge.invalidModelSink = sink.method(:invalidate);
+    var msg = {"protocol"=>1,"source"=>"phone_relay","type"=>"model_result","session"=>"relay-session",
+        "sequence"=>1,"sentAt"=>1000,"status"=>"ready","riskScore"=>0.75,"modelVersion"=>"website-v1"};
+    sink.now = 10000;
+    Test.assert(bridge.receive(msg,1001,10000,false)["status"].equals("accepted"));
+    var received = sink.received as Dictionary;
+    Test.assertEqual(received[:timestamp],9000); Test.assertEqual(sink.alerts.level,0);
+    msg["sequence"] = 2; msg["sentAt"] = 1001;
+    Test.assert(bridge.receive(msg,1001,11000,false)["status"].equals("rate_limited"));
+    sink.now = 15000; msg["sentAt"] = 1005;
+    Test.assert(bridge.receive(msg,1006,15000,false)["status"].equals("accepted"));
+    sink.now = 20000; msg["sequence"] = 3; msg["sentAt"] = 1010;
+    Test.assert(bridge.receive(msg,1011,20000,false)["status"].equals("accepted"));
+    Test.assertEqual(sink.alerts.level,1);
+    msg["sequence"] = 4; msg["riskScore"] = 95;
+    Test.assert(bridge.receive(msg,1011,25000,false)["status"].equals("invalid"));
+    Test.assert(sink.alerts.missing); Test.assertEqual(sink.alerts.warningCount,0);
+    msg["riskScore"] = 0.95; msg["sentAt"] = 1015; sink.now = 25000;
+    Test.assert(bridge.receive(msg,1016,25000,true)["status"].equals("test_mode"));
+    Test.assert(bridge.receive(msg,1016,25000,false)["status"].equals("accepted"));
+    Test.assertEqual(sink.alerts.level,2);
+    Test.assert(bridge.receive(msg,1026,35000,false)["status"].equals("stale"));
+    msg["sequence"] = 5; msg["sentAt"] = 1020; msg["riskScore"] = null; msg["status"] = "insufficient_data"; sink.now = 30000;
+    Test.assert(bridge.receive(msg,1021,30000,false)["status"].equals("insufficient_data"));
+    Test.assert(sink.alerts.missing); Test.assertEqual(sink.alerts.level,2);
+    return true;
+}
+(:test)
 function testTelemetry(logger) {
     var s = new SensorCollector(); var t = s.telemetry;
     var p = t.packet(s, 1000, 100, 1, "test-session");

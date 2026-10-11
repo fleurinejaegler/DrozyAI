@@ -89,6 +89,46 @@
 - (void)heartbeat {
     [self sendType:self.session ? @"heartbeat" : @"hello" severity:nil capturedAt:[NSDate date]];
 }
+- (NSString *)watchSession { return self.session; }
+- (BOOL)watchReady { return self.ready && self.session != nil && !self.sending; }
+- (NSNumber *)submitRelayCommand:(NSDictionary *)command {
+    NSAssert([NSThread isMainThread], @"Use DrowsyWatchLink on main thread");
+    if (!self.watchReady || ![command[@"watchSession"] isEqual:self.session]) return nil;
+    NSNumber *capture = command[@"capturedAt"];
+    if (![capture isKindOfClass:[NSNumber class]]) return nil;
+    NSTimeInterval age = [NSDate date].timeIntervalSince1970 - capture.doubleValue;
+    if (!isfinite(age) || age > 10 || age < -2) return nil;
+    NSString *kind = command[@"type"];
+    NSMutableDictionary *payload = [@{@"protocol": @1, @"source": @"phone_relay",
+        @"session": self.session, @"sentAt": @((int32_t)floor(capture.doubleValue))} mutableCopy];
+    if ([kind isEqual:@"model_result"]) {
+        payload[@"type"] = @"model_result";
+        payload[@"status"] = command[@"status"];
+        payload[@"riskScore"] = command[@"riskScore"];
+        payload[@"modelVersion"] = command[@"modelVersion"];
+    } else if ([kind isEqual:@"camera_alert"]) {
+        payload[@"type"] = @"alert"; payload[@"severity"] = command[@"severity"];
+    } else if ([kind isEqual:@"camera_clear"]) {
+        payload[@"type"] = @"clear";
+    } else return nil;
+    NSInteger seq = [[NSUserDefaults standardUserDefaults] integerForKey:@"DrowsyAlertSequence"] + 1;
+    if (seq <= 0 || seq > INT32_MAX) return nil;
+    [[NSUserDefaults standardUserDefaults] setInteger:seq forKey:@"DrowsyAlertSequence"];
+    NSNumber *sequence = @((int32_t)seq); payload[@"sequence"] = sequence;
+    self.sending = YES;
+    NSInteger generation = self.generation;
+    __weak typeof(self) weakSelf = self;
+    [[ConnectIQ sharedInstance] sendMessage:payload toApp:self.app progress:^(uint32_t sent, uint32_t total) {}
+        completion:^(IQSendMessageResult result) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                typeof(self) owner = weakSelf;
+                if (!owner || owner.generation != generation) return;
+                owner.sending = NO;
+                if (owner.onTransportResult) owner.onTransportResult(sequence, result == IQSendMessageResult_Success);
+            });
+        } isTransient:YES];
+    return sequence;
+}
 - (void)receivedMessage:(id)message fromApp:(IQApp *)app {
     if (![message isKindOfClass:[NSDictionary class]] || ![app.device.uuid isEqual:self.device.uuid]) return;
     NSDictionary *payload = message;

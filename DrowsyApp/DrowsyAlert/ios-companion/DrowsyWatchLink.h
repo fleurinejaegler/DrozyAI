@@ -8,6 +8,11 @@
 @property(nonatomic, copy) void (^onWatchMessage)(NSDictionary *message);
 // Watch telemetry uses NSNull for missing readings. Runs on the main queue.
 @property(nonatomic, copy) void (^onTelemetry)(NSDictionary *telemetry);
+@property(nonatomic, copy) void (^onTransportResult)(NSNumber *sequence, BOOL success);
+@property(nonatomic, readonly, copy) NSString *watchSession;
+@property(nonatomic, readonly) BOOL watchReady;
+// Returns the watch sequence, or nil if not submitted. The host must await receipt.
+- (NSNumber *)submitRelayCommand:(NSDictionary *)command;
 - (instancetype)initWithURLScheme:(NSString *)scheme;
 - (void)selectWatch;
 - (NSArray<IQDevice *> *)devicesFromURL:(NSURL *)url;

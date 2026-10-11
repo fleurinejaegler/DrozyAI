@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'none'">
+  <title>DrowsyRelay</title><link rel="stylesheet" href="style.css">
+  <script src="bridge.js" defer></script><script src="app.js" defer></script>
+</head>
+<body>
+  <main>
+    <header><span class="eyebrow">WATCH ↔ LOCAL WEBSITE</span><h1>Your live readings.</h1><p id="connection" role="status">Waiting for the watch connection.</p></header>
+    <section class="panel"><div class="section-title"><h2>Watch sensors</h2><span id="freshness">No data</span></div>
+      <div class="metrics">
+        <div><span>HEART RATE</span><strong id="hr">--</strong><small>bpm</small></div>
+        <div><span>BLOOD OXYGEN</span><strong id="spo2">--</strong><small>%</small></div>
+        <div><span>HRV · RMSSD</span><strong id="hrv">--</strong><small>ms · optional</small></div>
+        <div><span>SENSOR TEMPERATURE</span><strong id="temperature">--</strong><small>°C · not body temperature</small></div>
+      </div>
+      <p id="motion">Accelerometer: -- · Gyroscope: --</p><p class="muted">Missing readings remain missing. Motion batches retain gravity and their original units.</p>
+    </section>
+    <section class="panel"><h2>Drowsiness model</h2><p id="model">Model not connected.</p><p class="muted">Replace this bundled page with your team's website and model. This app relays real readings and decisions; it supplies no trained classifier.</p></section>
+    <section class="panel"><h2>Camera preview</h2><video id="camera" autoplay muted playsinline></video><button id="start-camera">Start camera</button><button id="stop-camera" class="secondary">Stop camera</button><p id="camera-status" class="muted">Video stays on the phone. Preview alone does not classify drowsiness.</p></section>
+    <section class="panel"><h2>Manual alarm demonstration</h2><p>These controls intentionally trigger the watch alarm. They are not model predictions.</p>
+      <div class="controls"><button id="warning" class="warning">Send warning</button><button id="high" class="danger">Send high alert</button><button id="clear" class="secondary">Clear camera alert</button></div>
+      <p id="delivery" role="status">Watch acceptance will appear here.</p>
+    </section>
+    <details class="panel"><summary>Latest packet / delivery events</summary><pre id="packet">No telemetry yet.</pre><pre id="events"></pre></details>
+  </main>
+</body></html>

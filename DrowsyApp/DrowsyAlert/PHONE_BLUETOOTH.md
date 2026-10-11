@@ -1,5 +1,7 @@
 # iPhone camera model → DrowsyAlert
 
+A complete companion project now lives at [phone-companion](../../phone-companion/README.md). It also relays laptop Python model scores and camera commands through a local service; use that guide for the current end-to-end setup.
+
 Watch-to-phone live sensor streaming is implemented separately; see [TELEMETRY.md](TELEMETRY.md) for the schema and `onTelemetry` callback. The same companion module handles both directions.
 
 The watch receives companion-app messages through Garmin Connect IQ Bluetooth messaging. No Wi-Fi, web server, or raw video transfer is required. Garmin Connect provides device selection/authorization; the iOS Connect IQ SDK handles the Bluetooth connection. This implementation requires DrowsyAlert and the iPhone camera app to be running in the foreground. Background delivery has not been implemented or validated.

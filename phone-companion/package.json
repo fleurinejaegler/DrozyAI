@@ -1,0 +1,11 @@
+{
+  "name": "drowsy-relay-demo",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Local transport between the iPhone companion and the team's Python model",
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "start": "node local-relay/server.cjs",
+    "test": "node --test Tests/*.test.cjs"
+  }
+}

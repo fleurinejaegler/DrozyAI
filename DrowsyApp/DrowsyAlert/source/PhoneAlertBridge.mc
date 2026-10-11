@@ -11,6 +11,7 @@ class PhoneAlertBridge {
     var lastSequence = -1;
     var lastAt = null;
     var lastAlertSequence = null;
+    var lastModelSequence = null;
     var transportEnabled = true;
     var sendBusy = false;
     var sendAt = 0;
@@ -18,6 +19,9 @@ class PhoneAlertBridge {
     var pendingReply = null;
     var lastTelemetryAt = 0;
     var telemetrySequence = 0;
+    var lastModelAt = null;
+    var modelSink = null;
+    var invalidModelSink = null;
     function initialize(token as String) { session = token; alerts = new AlertController(); }
     function start() {
         try { Communications.registerForPhoneAppMessages(method(:onMessage)); }
@@ -33,12 +37,18 @@ class PhoneAlertBridge {
         send(reply); WatchUi.requestUpdate();
     }
     function stringIs(value, expected as String) { return value instanceof String && value.equals(expected); }
+    function rejectModel(data as Dictionary) {
+        if (!stringIs(data["source"], "phone_relay") || !stringIs(data["type"], "model_result") || !stringIs(data["session"], session)) { return; }
+        if (invalidModelSink != null) { invalidModelSink.invoke(); }
+        else if (modelSink == null && !getApp().isTestMode()) { getApp().invalidateRemoteModelResult(); }
+    }
     function receive(data, utc, now, testMode) as Dictionary {
         var reply = {"type" => "receipt", "protocol" => 1, "session" => session, "status" => "invalid"};
         if (!(data instanceof Dictionary)) { return reply; }
-        if (data["protocol"] != 1 || !stringIs(data["source"], "phone_video")) { return reply; }
+        if (data["protocol"] != 1 || (!stringIs(data["source"], "phone_video") && !stringIs(data["source"], "phone_relay"))) { return reply; }
         var stamp = data["sentAt"];
         if (!(stamp instanceof Number) || stamp > utc + 2 || utc - stamp > 10) {
+            if (!testMode) { rejectModel(data); }
             reply["status"] = "stale"; return reply;
         }
         if (stringIs(data["type"], "hello")) {
@@ -51,7 +61,27 @@ class PhoneAlertBridge {
         reply["sequence"] = seq;
         if (seq <= lastSequence) { reply["status"] = "duplicate"; return reply; }
         var kind = data["type"];
-        if (!stringIs(kind, "alert") && !stringIs(kind, "heartbeat") && !stringIs(kind, "clear")) { return reply; }
+        if (!stringIs(kind, "alert") && !stringIs(kind, "heartbeat") && !stringIs(kind, "clear") && !stringIs(kind, "model_result")) { return reply; }
+        if (stringIs(kind, "model_result")) {
+            if (!stringIs(data["source"], "phone_relay")) { return reply; }
+            var state = data["status"];
+            if (!stringIs(state, "ready") && !stringIs(state, "insufficient_data") && !stringIs(state, "model_not_connected")) { if (!testMode) { rejectModel(data); } return reply; }
+            var score = data["riskScore"];
+            if (stringIs(state, "ready") && (!(score instanceof Number || score instanceof Float || score instanceof Double) || score != score || score < 0 || score > 1)) { if (!testMode) { rejectModel(data); } return reply; }
+            if (!stringIs(state, "ready") && score != null) { if (!testMode) { rejectModel(data); } return reply; }
+            if (!(data["modelVersion"] instanceof String)) { return reply; }
+            if (testMode) { reply["status"] = "test_mode"; return reply; }
+            if (lastModelAt != null && now - lastModelAt < Config.EVALUATION_MS) { reply["status"] = "rate_limited"; return reply; }
+            // Convert the original capture age, never renew an old inference timestamp.
+            var translated = now - Config.max(0, utc - stamp) * 1000;
+            var result = { :riskScore => score, :timestamp => translated, :modelVersion => data["modelVersion"],
+                :status => stringIs(state, "ready") ? :ready : (stringIs(state, "insufficient_data") ? :insufficient_data : :model_not_connected) };
+            lastSequence = seq; lastAt = now; lastModelAt = now;
+            var accepted = modelSink != null ? modelSink.invoke(result) : getApp().acceptModelResult(result);
+            if (accepted) { lastModelSequence = seq; }
+            reply["status"] = accepted ? "accepted" : "insufficient_data";
+            return reply;
+        }
         var severity = data["severity"];
         if (stringIs(kind, "alert") && !stringIs(severity, "warning") && !stringIs(severity, "high")) { return reply; }
         // Never mix phone alarms with synthetic replay.
@@ -76,10 +106,16 @@ class PhoneAlertBridge {
         }
     }
     function acknowledge(now) {
-        if (alerts.acknowledge(now)) {
-            send({"protocol" => 1, "type" => "user_acknowledged", "session" => session,
-                "sequence" => lastAlertSequence, "source" => "phone_video"});
-        }
+        acknowledgeAll(now, false);
+    }
+    function acknowledgeAll(now, modelAcknowledged) {
+        var cameraAcknowledged = alerts.acknowledge(now);
+        if (!cameraAcknowledged && !modelAcknowledged) { return; }
+        send({"protocol" => 1, "type" => "user_acknowledged", "session" => session,
+            "sequence" => cameraAcknowledged ? lastAlertSequence : lastModelSequence,
+            "modelSequence" => modelAcknowledged ? lastModelSequence : null,
+            "cameraSequence" => cameraAcknowledged ? lastAlertSequence : null,
+            "source" => cameraAcknowledged ? (modelAcknowledged ? "both" : "phone_video") : "watch_model"});
     }
     function sendTelemetry(sensors as SensorCollector, now, testMode) {
         // Receipts/acknowledgments have priority. Drop rather than queue telemetry.
