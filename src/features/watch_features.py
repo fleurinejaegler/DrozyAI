@@ -40,7 +40,6 @@ FEATURE_COLUMNS = [
     "hr_mean",
     "rmssd",
     "temp_trend",
-    "eda_peaks",
     "motion_var",
 ]
 
@@ -120,7 +119,6 @@ def _extract_window_features(window: pd.DataFrame) -> dict[str, float]:
         "hr_mean": _safe_mean(hr),
         "rmssd": rmssd,
         "temp_trend": _temp_trend(temp),
-        "eda_peaks": float(_count_eda_peaks(eda)),
         "motion_var": motion_var,
     }
 

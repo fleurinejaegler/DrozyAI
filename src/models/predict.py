@@ -17,7 +17,6 @@ Usage
         "hr_mean": 75.3,
         "rmssd": 0.052,
         "temp_trend": -0.0001,
-        "eda_peaks": 3,
         "motion_var": 8.2,
     })
     print(score)   # e.g. 0.68
@@ -53,7 +52,6 @@ FEATURE_COLUMNS = [
     "hr_mean",
     "rmssd",
     "temp_trend",
-    "eda_peaks",
     "motion_var",
 ]
 
@@ -165,14 +163,12 @@ def _demo() -> None:
         "hr_mean": 78.0,
         "rmssd": 0.065,
         "temp_trend": -0.0002,
-        "eda_peaks": 3,
         "motion_var": 9.0,
     }
     drowsy = {
         "hr_mean": 72.0,
         "rmssd": 0.045,
         "temp_trend": 0.0003,
-        "eda_peaks": 2,
         "motion_var": 4.0,
     }
 

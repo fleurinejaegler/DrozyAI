@@ -50,7 +50,6 @@ FEATURE_COLUMNS = [
     "hr_mean",
     "rmssd",
     "temp_trend",
-    "eda_peaks",
     "motion_var",
 ]
 
