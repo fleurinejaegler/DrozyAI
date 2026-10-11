@@ -1,0 +1,9 @@
+# Python 3.12; matches the saved video-model environment.
+Flask==3.1.2
+bleak==3.0.2
+numpy==2.5.4
+pandas==3.0.6
+scipy==1.18.1
+scikit-learn==1.9.1
+joblib==1.6.0
+torch==2.14.1

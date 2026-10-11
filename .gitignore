@@ -51,6 +51,25 @@ models/*.pt
 .vscode/
 .idea/
 
+# Isaac's small, reviewed model artifacts only; keep blanket raw-data exclusions.
+!/data/processed/small_tcn.pt
+!/data/processed/tcn_scaler.joblib
+!/data/processed/facial_model.pkl
+
+# Local camera/session exports and review environments
+web/session-exports/
+.review-venv/
+.upload-review-deps/
+.env.*
+!.env.example
+*.download
+*.crdownload
+*.mkv
+*.webm
+*.m4v
+*.7z
+*.rar
+
 # Connect IQ build output and signing key
 /DrowsyApp/DrowsyAlert/bin/
 /developer_key
