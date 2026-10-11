@@ -24,3 +24,10 @@ checkpoints/
 # Editors
 .vscode/
 .idea/
+
+# Connect IQ build output and signing key
+/DrowsyApp/DrowsyAlert/bin/
+/developer_key
+*.prg
+*.prg.debug.xml
+*.iq

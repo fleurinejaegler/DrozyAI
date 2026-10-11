@@ -1,19 +1,11 @@
 import Toybox.Lang;
-import Toybox.System;
 import Toybox.WatchUi;
-
 class DrowsyAlertMenuDelegate extends WatchUi.MenuInputDelegate {
-
-    function initialize() {
-        MenuInputDelegate.initialize();
-    }
-
+    function initialize() { MenuInputDelegate.initialize(); }
     function onMenuItem(item as Symbol) as Void {
-        if (item == :item_1) {
-            System.println("item 1");
-        } else if (item == :item_2) {
-            System.println("item 2");
-        }
+        if (item == :test_warning) { getApp().setDemo(0.75); }
+        else if (item == :test_high) { getApp().setDemo(0.95); }
+        else if (item == :live) { getApp().live(); }
+        else if (item == :baseline) { getApp().restartBaseline(); }
     }
-
 }
