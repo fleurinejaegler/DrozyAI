@@ -1,5 +1,42 @@
-...
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Data rules
 /data/raw/
 /data/processed/*.parquet
 !/data/processed/full_dataset.parquet
-...
+
+# Reference code
+/reference/
+
+# Model checkpoints
+checkpoints/
+models/*.pt
+
+# Large files
+*.h5
+*.pkl
+*.npz
+*.pt
+*.pth
+*.mp4
+*.avi
+*.mov
+*.zip
+*.tar.gz
+
+# Secrets
+.env
+*.pem
+*.key
+
+# Editors
+.vscode/
+.idea/
