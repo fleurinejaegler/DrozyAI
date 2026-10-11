@@ -128,7 +128,7 @@ class DrowsyAlertView extends WatchUi.View {
             text(dc, 240, 336, 32, hr + " bpm", fg);
             text(dc, 227, 368, 15, app.isTestMode() ? "TEST - SIMULATED DATA" : "HEART RATE", 0xAAB7BC);
             text(dc, 227, 392, 15, "SpO2 " + o2 + "   Move " + move + " mg", 0xAAB7BC);
-            text(dc, 227, 414, 13, app.isTestMode() ? "MENU: OPTIONS" : app.computer.label(now), 0xAAB7BC);
+            text(dc, 227, 414, 13, app.isTestMode() ? "MENU: OPTIONS" : app.connectionLabel(now), 0xAAB7BC);
         }
     }
 }

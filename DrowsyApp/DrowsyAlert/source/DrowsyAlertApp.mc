@@ -18,6 +18,8 @@ class DrowsyAlertApp extends Application.AppBase {
         model = new ModelAdapter(); alerts = new AlertController(); ticker = new Timer.Timer();
         computer = new ComputerUplink();
         phone = new PhoneAlertBridge(Time.now().value().toString() + "-" + System.getTimer().toString());
+        phone.modelSink = method(:acceptModelResult);
+        phone.invalidModelSink = method(:invalidateRemoteModelResult);
         result = { :riskScore => null, :status => :model_not_connected, :timestamp => 0, :modelVersion => "not-connected" };
     }
     function onStart(state as Dictionary?) as Void {
@@ -102,6 +104,9 @@ class DrowsyAlertApp extends Application.AppBase {
         phone.acknowledgeAll(now, modelAcknowledged && externalModel && !isTestMode()); WatchUi.requestUpdate();
     }
     function isTestMode() { return demo != null || testData != null; }
+    function connectionLabel(now) {
+        return WebsiteConfig.USE_PHONE_RELAY ? phone.label(now) : computer.label(now);
+    }
     function replayTestData() {
         phone.alerts.stop(); phone.alerts.level = 0;
         externalModel = false; sensors.stop(); sensors = new SensorCollector();

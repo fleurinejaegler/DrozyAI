@@ -7,7 +7,7 @@ class ComputerUplink {
     var endpoint as String = WebsiteConfig.UPLOAD_URL;
     var token as String = WebsiteConfig.API_TOKEN;
     var enabled = true;
-    var websiteReady = WebsiteConfig.READY;
+    var websiteReady = WebsiteConfig.READY && !WebsiteConfig.USE_PHONE_RELAY;
     var session; var anchorEpoch; var anchorWatch;
     var sequence = 0; var pending as Dictionary? = null; var busy = false;
     var requestAt = 0; var nextAttempt = 0; var retryMs = 5000;
@@ -22,7 +22,7 @@ class ComputerUplink {
         // Build configuration is authoritative, including on previously installed watches.
         // Old manually entered URLs, tokens and OFF settings must not override it.
         endpoint=WebsiteConfig.UPLOAD_URL; token=WebsiteConfig.API_TOKEN;
-        enabled=true; websiteReady=WebsiteConfig.READY;
+        enabled=true; websiteReady=WebsiteConfig.READY && !WebsiteConfig.USE_PHONE_RELAY;
         batchMs=WebsiteConfig.UPLOAD_INTERVAL_MS;
     }
     function cancel() {

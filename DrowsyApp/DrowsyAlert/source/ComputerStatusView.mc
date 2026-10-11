@@ -16,7 +16,7 @@ class ComputerStatusView extends WatchUi.View {
         var lines=["DROWSINESS MONITOR", "HR: "+(available["heart_rate"].equals("receiving") ? s.hr.toString()+" bpm" : available["heart_rate"]),
             "Accel: "+available["accelerometer"]+" "+s.sampleRate.toString()+" Hz",
             "IBI: "+available["ibi"], "Temp: "+(!available["temperature"].equals("receiving") ? "--" : s.uploadTemperature.format("%.1f")+" C"),
-            u.label(now), "Last upload: "+(u.lastUpload==null ? "never" : ((now-u.lastUpload)/1000).toNumber().toString()+"s ago"),
+            app.connectionLabel(now), WebsiteConfig.USE_PHONE_RELAY ? "Transport: DrowsyRelay phone" : "Last upload: "+(u.lastUpload==null ? "never" : ((now-u.lastUpload)/1000).toNumber().toString()+"s ago"),
             app.isTestMode() ? "TEST: UPLOADS BLOCKED" : u.error,
             "Drops: "+s.uploadBuffer.dropped["accelerometer"].toString()+" accel | "+(u.batchMs/1000).toNumber().toString()+"s", "BACK: RETURN"];
         var step=dc.getHeight()/13; var top=step*2;
