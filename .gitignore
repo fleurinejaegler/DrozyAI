@@ -11,7 +11,13 @@ venv/
 # Data rules
 /data/raw/
 /data/processed/*.parquet
+
+# Allow small derived files for team sharing
 !/data/processed/full_dataset.parquet
+!/data/processed/baseline_scores.parquet
+
+# Allow small CSV
+!/data/processed/tradeoff_curve.csv
 
 # Reference code
 /reference/
@@ -31,6 +37,7 @@ models/*.pt
 *.mov
 *.zip
 *.tar.gz
+*.csv
 
 # Secrets
 .env
