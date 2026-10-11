@@ -75,6 +75,22 @@ function testTelemetry(logger) {
     return true;
 }
 (:test)
+function testAlarmCadence(logger) {
+    var a = new AlertController(); a.signalEnabled = false;
+    a.triggerExternal(1, 1000); a.tick(1000);
+    a.tick(3500); Test.assertEqual(a.lastSignal, 1000);
+    a.tick(4000); Test.assertEqual(a.lastSignal, 4000);
+    a.triggerExternal(2, 4500); a.tick(4500);
+    a.tick(5500); Test.assertEqual(a.lastSignal, 4500);
+    a.tick(6000); Test.assertEqual(a.lastSignal, 6000);
+    Test.assert(a.signaling(34499)); Test.assert(!a.signaling(34500));
+    a.tick(34500); Test.assertEqual(a.lastSignal, 6000);
+    a.acknowledge(35000); Test.assert(!a.signaling(35000));
+    a.triggerExternal(2, 95000); Test.assert(a.signaling(95000));
+    a.stop(); Test.assert(!a.signaling(95000));
+    return true;
+}
+(:test)
 function testAlertThresholds(logger) {
     var a = new AlertController(); a.signalEnabled = false;
     a.evaluate(testResult(0.70, 1000), 1000);

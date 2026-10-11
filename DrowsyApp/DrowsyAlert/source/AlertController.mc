@@ -67,15 +67,30 @@ class AlertController {
     function bright(now) {
         return flashing(now) && ((now - started) / 500).toNumber() % 2 == 0;
     }
+    function signaling(now) {
+        return level > 0 && started != null && !acknowledged && now - started < Config.SIGNAL_MS;
+    }
     function tick(now) {
         if (lastAccepted == null || now - lastAccepted > Config.RESULT_FRESH_MS) { invalidate(); }
-        if (started == null || acknowledged || now - started >= Config.SIGNAL_MS) { return; }
-        if (lastSignal != null && now - lastSignal < Config.SIGNAL_INTERVAL_MS) { return; }
+        if (!signaling(now)) { return; }
+        var signalInterval = level == 2 ? Config.HIGH_SIGNAL_INTERVAL_MS : Config.SIGNAL_INTERVAL_MS;
+        if (lastSignal != null && now - lastSignal < signalInterval) { return; }
         lastSignal = now;
         if (!signalEnabled) { return; }
-        try { if (Attention has :playTone) { Attention.playTone(Attention.TONE_ALARM); } }
+        try { if (Attention has :playTone) { Attention.playTone(level == 2 ? Attention.TONE_LOUD_BEEP : Attention.TONE_ALARM); } }
         catch (ex) { System.println("Alarm tone unavailable"); }
-        try { if (Attention has :vibrate) { Attention.vibrate([new Attention.VibeProfile(80, 300)]); } }
+        try {
+            if (Attention has :vibrate) {
+                if (level == 2) {
+                    Attention.vibrate([new Attention.VibeProfile(100, 400), new Attention.VibeProfile(0, 100),
+                     new Attention.VibeProfile(100, 400), new Attention.VibeProfile(0, 100),
+                     new Attention.VibeProfile(100, 400)]);
+                } else {
+                    Attention.vibrate([new Attention.VibeProfile(90, 350), new Attention.VibeProfile(0, 150),
+                     new Attention.VibeProfile(90, 350)]);
+                }
+            }
+        }
         catch (ex) { System.println("Vibration unavailable"); }
     }
     function stop() { started = null; lastSignal = null; }
