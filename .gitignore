@@ -8,25 +8,9 @@ __pycache__/
 venv/
 *.egg-info/
 
-# Data rules
-/data/raw/
-/data/processed/*.parquet
-
-# Allow small derived files for team sharing
-!/data/processed/full_dataset.parquet
-!/data/processed/baseline_scores.parquet
-
-# Allow small CSV
-!/data/processed/tradeoff_curve.csv
-
-# Reference code
-/reference/
-
-# Model checkpoints
-checkpoints/
-models/*.pt
-
-# Large files
+# ============================================================
+# Large files (everywhere)
+# ============================================================
 *.h5
 *.pkl
 *.npz
@@ -38,6 +22,24 @@ models/*.pt
 *.zip
 *.tar.gz
 *.csv
+
+# ============================================================
+# Data rules (later rules override earlier)
+# ============================================================
+/data/raw/
+/data/processed/*.parquet
+
+# Allow small derived files for team sharing
+!/data/processed/full_dataset.parquet
+!/data/processed/baseline_scores.parquet
+!/data/processed/tradeoff_curve.csv
+
+# Reference code
+/reference/
+
+# Model checkpoints
+checkpoints/
+models/*.pt
 
 # Secrets
 .env
