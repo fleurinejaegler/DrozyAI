@@ -43,6 +43,8 @@ The relay has no classifier or automatic dummy score generator. Its test suite u
 
 ## Teammate integration
 
+The existing `src/models/predict.py` and trained artifact have now been inspected. See [MODEL_COMPATIBILITY.md](MODEL_COMPATIBILITY.md): the saved model requires EDA/skin-temperature features unavailable from this Garmin feed. A read-only adapter is provided, but live Garmin risk stays null until a compatible model/preprocessing contract is supplied.
+
 See [RELAY_CONTRACT.md](RELAY_CONTRACT.md) for both the Python/HTTP and bundled JavaScript interfaces. Start with `local-relay/gateway_client.py` in your existing Python process. It uses only Python's standard library. Do not copy models into the watch or invent missing sensor values.
 
 The phone maintains separate latest model and camera command slots. Camera commands get priority; the SDK has only one Bluetooth send active. Missing/stale inputs, old sessions, invalid scores, and duplicates are rejected. Watch receipts and START acknowledgments are forwarded to the laptop and bundled website. **HTTP 202 or Bluetooth send success is not proof that the watch accepted or played an alert.** Check the final `command_result` and the physical watch.
