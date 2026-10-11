@@ -115,7 +115,7 @@ class DrowsyAlertView extends WatchUi.View {
             text(dc, 227, 329, 29, high ? "STOP SAFELY" : "TAKE A BREAK", fg);
             heart(dc, 155, 364, fg);
             text(dc, 240, 367, 29, hr + " bpm", fg);
-            text(dc, 227, 393, 13, (app.demo != null ? "DEMO | " : "") + (!sensor.coreFresh(now) ? "SENSOR DATA MISSING" : "SpO2 " + o2 + "   Move " + move + " mg"), fg);
+            text(dc, 227, 393, 13, (app.isTestMode() ? "TEST | " : "") + (!sensor.coreFresh(now) ? "SENSOR DATA MISSING" : "SpO2 " + o2 + "   Move " + move + " mg"), fg);
             text(dc, 227, 414, 13, alert.acknowledged ? "ACKNOWLEDGED - ELEVATED" : "START: ACKNOWLEDGE", fg);
         } else {
             gauge(dc, risk, accent, muted);
@@ -124,7 +124,7 @@ class DrowsyAlertView extends WatchUi.View {
             text(dc, 227, 290, risk == null ? 17 : 29, risk == null ? app.status(now) : "LOW", risk == null ? 0xAAB7BC : accent);
             heart(dc, 148, 333, 0xFF3150);
             text(dc, 240, 336, 32, hr + " bpm", fg);
-            text(dc, 227, 368, 15, app.demo != null ? "DEMO - SIMULATED RISK" : "HEART RATE", 0xAAB7BC);
+            text(dc, 227, 368, 15, app.isTestMode() ? "TEST - SIMULATED DATA" : "HEART RATE", 0xAAB7BC);
             text(dc, 227, 392, 15, "SpO2 " + o2 + "   Move " + move + " mg", 0xAAB7BC);
             text(dc, 227, 414, 13, "MENU: OPTIONS", 0xAAB7BC);
         }

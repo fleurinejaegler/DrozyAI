@@ -109,3 +109,29 @@ function testSlopeAndMissingCoverage(logger) {
 function testResult(score, now) as Dictionary {
     return { :riskScore => score, :status => :ready, :timestamp => now, :modelVersion => "unit-test" };
 }
+
+(:test)
+function testReplayEndToEnd(logger) {
+    var replay = new TestDataReplay(1000);
+    var s = new SensorCollector(); var model = new ModelAdapter();
+    var a = new AlertController(); a.signalEnabled = false;
+    for (var i = 0; i < 18; i += 1) {
+        var now = 1000 + i * Config.EVALUATION_MS;
+        replay.applyVitals(s, now);
+        var result = replay.result(model, now);
+        a.evaluate(result, now);
+        if (i == 0) { Test.assertEqual(s.hr, 72); Test.assertEqual(result[:riskScore], 0.28); Test.assertEqual(a.level, 0); }
+        if (i == 3) { Test.assert(s.oxygen == null); Test.assert(s.coreFresh(now)); }
+        if (i == 5) { Test.assertEqual(a.level, 0); }
+        if (i == 6) { Test.assertEqual(a.level, 1); }
+        if (i == 8) { Test.assertEqual(a.level, 2); a.acknowledge(now); }
+        if (i == 9) { Test.assert(a.acknowledged); Test.assertEqual(a.level, 2); }
+        if (i == 12) { Test.assert(!s.coreFresh(now)); Test.assert(s.hr == null); Test.assert(result[:riskScore] == null); Test.assertEqual(a.level, 2); }
+        if (i == 15) { Test.assertEqual(a.level, 2); }
+        if (i == 16) { Test.assertEqual(a.level, 0); }
+    }
+    replay.applyVitals(s, 91000);
+    Test.assertEqual(s.hr, 72);
+    Test.assertEqual(replay.result(model, 91000)[:riskScore], 0.28);
+    return true;
+}

@@ -34,9 +34,9 @@ Untracking does not erase a key from existing Git history.
 - `source/AlertController.mc`: shared timer-driven warning/high/recovery controller.
 - `source/Config.mc`: provisional settings. `source/Tests.mc`: simulator tests.
 
-The actual manifest build diagnostic was: “No supported languages are defined.
+The actual manifest build diagnostic was: Ã¢â‚¬Å“No supported languages are defined.
 Language-specific resources will be ignored unless language support is added to
-the manifest file.” English (`eng`) is now declared. The only added permission is
+the manifest file.Ã¢â‚¬Â English (`eng`) is now declared. The only added permission is
 `Sensor`. The launcher icon now matches fr970's 65 by 65 requirement. The device
 definition specifies a round 454 by 454 AMOLED display and API level 6.0.3.
 The existing minApiLevel 6.0.0 is preserved.
@@ -64,7 +64,7 @@ Verified against installed Connect IQ SDK 9.2.0 documentation and
 All values have app monotonic receipt timestamps (`System.getTimer()`, ms).
 Accelerometer sample timestamps are used for order/deduplication; feature bucket
 time is receipt time, not an assumed wall-clock measurement time. HR/SpO2 APIs
-used here do not supply a separate measurement-age timestamp. “Fresh” therefore
+used here do not supply a separate measurement-age timestamp. Ã¢â‚¬Å“FreshÃ¢â‚¬Â therefore
 means a recent valid callback, not proof of a newly acquired optical measurement.
 This limitation must be considered when defining the final model contract.
 
@@ -88,7 +88,7 @@ map the following provisional order to the teammate's exact schema.
 | 4 | hrBaselineDelta | bpm | hrMean minus frozen personal baseline HR |
 | 5 | accelMean | mg | mean of sqrt(x squared + y squared + z squared) |
 | 6 | accelStd | mg | population SD of acceleration magnitudes |
-| 7 | stillFraction | 0–1 fraction | proportion of accepted magnitudes with abs(magnitude - 1000 mg) < 50 mg |
+| 7 | stillFraction | 0Ã¢â‚¬â€œ1 fraction | proportion of accepted magnitudes with abs(magnitude - 1000 mg) < 50 mg |
 | 8 | rmssd | ms or null | sqrt(mean of squared differences between consecutive valid RR intervals) |
 
 Metadata: `complete` (Boolean), `timestamp` (monotonic ms), `schema`
@@ -114,7 +114,7 @@ is insufficient at five minutes, restart that attempt automatically. MENU's
 Restart baseline clears the baseline and feature window, without erasing an
 active real warning. Baseline is session-local and is not stored across launches.
 
-RMSSD: accept only received RR intervals in the provisional 300–2000 ms range;
+RMSSD: accept only received RR intervals in the provisional 300Ã¢â‚¬â€œ2000 ms range;
 invalid intervals and absent RR batches break adjacency. A receipt gap >3 seconds
 also breaks adjacency. Require at least 20 valid adjacent differences in the
 window and a fresh RR callback, otherwise return null. Each difference is assigned
@@ -141,7 +141,7 @@ The current adapter always returns `:model_not_connected`, a null score, and
 `not-connected` version. The app additionally gates predictions on feature
 coverage/baseline and current freshness. Invalid, duplicate, out-of-range,
 non-numeric, future, or >10-second-old ready results cannot become low estimated
-risk. The UI shows 0–100 only for an accepted result. Missing sensor data during a
+risk. The UI shows 0Ã¢â‚¬â€œ100 only for an accepted result. Missing sensor data during a
 real alert hides the score and retains the warning.
 
 No heuristic or invented model coefficients are included. Python/scikit-learn
@@ -172,7 +172,7 @@ MENU -> Test warning injects 0.75 immediately, then every five seconds. It takes
 three consecutive valid evaluations: approximately 10 seconds from selection.
 MENU -> Test high (DEMO) injects 0.95 and alerts immediately. These use the same
 `AlertController.evaluate` as the real adapter, bypassing sensor/model readiness
-only in this separate mode. “DEMO - simulated risk” remains prominent.
+only in this separate mode. Ã¢â‚¬Å“DEMO - simulated riskÃ¢â‚¬Â remains prominent.
 Return to live clears demonstration state and restores live vitals and unknown
 model risk. Selecting Return to live while already live preserves real warnings.
 
@@ -210,7 +210,7 @@ $sdkPath = (Get-Content "$env:APPDATA\Garmin\ConnectIQ\current-sdk.cfg" -Raw).Tr
 & "$sdkPath\bin\monkeydo.bat" bin\DrowsyAlert-sim.prg fr970
 ```
 
-Alternatively use Monkey C's Run Without Debugging in VS Code and select fr970.
+Alternatively use VS Code Run -> Run Without Debugging (Ctrl+F5), choose Monkey C and fr970.
 For simulator MENU, uppercase M (Shift+M) was verified; Enter selects/acknowledges,
 arrow keys move through the native menu, and Escape backs out. On the watch hold
 UP/MENU to open the menu.
@@ -237,7 +237,7 @@ Simulator tests (start the simulator first):
 ## Validation and physical-watch checklist
 
 Simulator and release builds succeed with SDK 9.2.0 for fr970, with no compiler
-warnings. Four simulator tests pass: threshold/escalation/recovery/acknowledgment/flash phases,
+warnings. Five simulator tests pass, including the synthetic tracking replay: threshold/escalation/recovery/acknowledgment/flash phases,
 invalid/stale/duplicate results, baseline/feature values/window bounds,
 and HR slope with insufficient coverage. Native simulator layout was inspected
 for unknown values, warning/high states, acknowledgment, and round-screen margins;
@@ -277,3 +277,49 @@ device; online references explain the same APIs:
 - [Accelerometer units and timestamps](https://developer.garmin.com/connect-iq/api-docs/Toybox/Sensor/AccelerometerData.html)
 - [Sensor.Info / SpO2](https://developer.garmin.com/connect-iq/api-docs/Toybox/Sensor/Info.html)
 - [Attention tones and vibration](https://developer.garmin.com/connect-iq/api-docs/Toybox/Attention.html)
+
+## TEST DATA replay and future score delivery
+
+`source/TEST_DATA_Replay.mc` is clearly labeled synthetic TEST DATA. These are
+Garmin-style metrics, not recordings collected from a Garmin or model predictions.
+Columns are HR (bpm), acceleration magnitude (mg, including gravity), optional
+SpO2 (%), and assumed model score (0..1). No raw accelerometer samples, beat
+intervals, or feature vectors are invented. Each row lasts five seconds; held
+fixture vitals are published at the 500 ms UI timer rate. The 90-second sequence
+loops: low 0-20 s, rising 20-40 s (controller warning at 30 s), immediate high
+40-60 s, missing core data/result 60-70 s (warning retained), recovery 70-90 s
+(controller clears elevated state at 80 s after three valid low results).
+
+Start with MENU -> Replay TEST DATA. The display is explicitly labeled TEST.
+START acknowledges alerts while playback continues. Return to live stops replay,
+restarts actual Garmin listeners with empty readings, and restarts the real baseline.
+Replay never mixes fixture vitals into real sensor collection or baseline features.
+The separate Test warning/high entries continue to use actual live sensor readings
+with an injected score. Normal app startup always uses actual Garmin sensors.
+
+For a watch-compatible model, implement `ModelAdapter.evaluate(features)` with
+its exact validated preprocessing. `ModelAdapter.resultFromScore(score, timestamp,
+version)` builds the common envelope; thresholds and display need no changes.
+
+For an off-watch model, a future receiver can call
+`getApp().acceptModelResult(payload)` using the same Symbol-keyed Dictionary:
+`{:riskScore=>0.78, :status=>:ready, :timestamp=>watchMonotonicMs,
+:modelVersion=>"your-model-version"}`. The score must be 0..1 (not 0..100).
+Deliver distinct fresh results at the configured five-second interval. Missing
+scores use null and :insufficient_data. Timestamp means inference/capture time in
+this watch's System.getTimer() clock; remote epoch time needs synchronization and
+age conversion, never simply retimestamp old predictions as fresh.
+
+The hook validates results through the shared AlertController and requires fresh
+actual core sensor data. Once invoked it prevents the unconnected local adapter
+from overwriting received results; sensor loss and result timeout still clear the
+score and retain an active warning. Return to live leaves this receiver mode.
+No Bluetooth/phone/HTTP transport is implemented or selected here. A Python model
+cannot send directly to this hook without a watch-compatible receiver/companion.
+The teammate must agree on sensor export, transport, timestamps, inference window,
+feature schema and missing-data rules before remote integration is complete.
+
+VS Code launch: open a .mc file in this project, use Run -> Run Without Debugging
+(Ctrl+F5), select Monkey C and fr970 if prompted. Simulator: focus window, Shift+M opens
+MENU, arrows select, Enter starts/acknowledges. The previous guide's command-palette
+name "Monkey C: Run Without Debugging" was incorrect; use VS Code's Run command.
