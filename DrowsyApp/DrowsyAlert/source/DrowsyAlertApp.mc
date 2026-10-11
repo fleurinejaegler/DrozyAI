@@ -30,6 +30,7 @@ class DrowsyAlertApp extends Application.AppBase {
             alerts.invalidate(); result[:riskScore] = null; result[:status] = :insufficient_data;
         }
         alerts.tick(now); phone.tick(now);
+        phone.sendTelemetry(sensors, now, isTestMode());
         if (foreground) { WatchUi.requestUpdate(); }
     }
     function evaluateNow(now) {

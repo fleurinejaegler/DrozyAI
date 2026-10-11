@@ -19,7 +19,11 @@ class SensorCollector {
     var rrAt = null;
     var lastAccelTimestamp = null;
     var running = false;
-    function initialize() {}
+    var temperature = null;
+    var temperatureAt = null;
+    var gyroRate = 0;
+    var telemetry as TelemetryCollector;
+    function initialize() { telemetry = new TelemetryCollector(); }
     function start() {
         if (running) { return; }
         running = true;
@@ -27,31 +31,42 @@ class SensorCollector {
             Sensor.setEnabledSensors([Sensor.SENSOR_HEARTRATE]);
             Sensor.enableSensorEvents(method(:onInfo));
         } catch (ex) { System.println("Heart rate listener unavailable"); }
-        try {
-            if (Sensor has :SENSOR_PULSE_OXIMETRY) {
-                Sensor.setEnabledSensors([Sensor.SENSOR_HEARTRATE, Sensor.SENSOR_PULSE_OXIMETRY]);
-            }
-        } catch (ex) {
-            System.println("Optional SpO2 unavailable");
-            try { Sensor.setEnabledSensors([Sensor.SENSOR_HEARTRATE]); } catch (fallback) {}
+        // Enable optional sensors independently: one failure cannot disable HR.
+        var enabled = [Sensor.SENSOR_HEARTRATE];
+        if (Sensor has :SENSOR_PULSE_OXIMETRY) {
+            try { Sensor.setEnabledSensors([Sensor.SENSOR_HEARTRATE, Sensor.SENSOR_PULSE_OXIMETRY]); enabled.add(Sensor.SENSOR_PULSE_OXIMETRY); }
+            catch (ex) { try { Sensor.setEnabledSensors(enabled); } catch (fallback) {} }
         }
+        try {
+            var withTemperature = enabled.slice(0, enabled.size()); withTemperature.add(Sensor.SENSOR_TEMPERATURE);
+            Sensor.setEnabledSensors(withTemperature);
+        } catch (ex) { try { Sensor.setEnabledSensors(enabled); } catch (fallback) {} }
+        try { gyroRate = Config.min(Config.GYRO_RATE, Sensor.getMaxSampleRateForSensorType(:gyroscope)).toNumber(); }
+        catch (ex) { gyroRate = 0; }
         try {
             sampleRate = Config.min(Config.ACCEL_RATE, Sensor.getMaxSampleRateForSensorType(:accelerometer)).toNumber();
             if (sampleRate > 0) {
-                try { register(true); } catch (ex) { register(false); }
+                try { register(true, gyroRate > 0); }
+                catch (ex) {
+                    try { register(false, gyroRate > 0); }
+                    catch (fallback) { gyroRate = 0; try { register(true, false); } catch (rrFallback) { register(false, false); } }
+                }
             }
         } catch (ex) { System.println("Accelerometer listener unavailable"); }
     }
-    function register(withIntervals) {
+    function register(withIntervals, withGyro) {
         Sensor.registerSensorDataListener(method(:onData), {
             :period => 1,
             :accelerometer => { :enabled => true, :sampleRate => sampleRate, :includeTimestamps => true },
+            :gyroscope => { :enabled => withGyro, :sampleRate => withGyro ? gyroRate : Config.GYRO_RATE, :includeTimestamps => true },
             :heartBeatIntervals => { :enabled => withIntervals }
         });
     }
     function onInfo(info as Sensor.Info) as Void {
         if (!running) { return; }
         var now = System.getTimer();
+        temperature = info.temperature;
+        temperatureAt = temperature != null ? now : null;
         hr = info.heartRate;
         hrAt = (hr != null && hr > 0) ? now : null;
         if (hrAt == null) { hr = null; }
@@ -64,6 +79,7 @@ class SensorCollector {
     function onData(data as Sensor.SensorData) as Void {
         if (!running) { return; }
         var now = System.getTimer();
+        telemetry.collect(data, now, sampleRate, gyroRate);
         var accel = data.accelerometerData;
         if (accel != null) {
             var count = Config.min(accel.x.size(), Config.min(accel.y.size(), accel.z.size())).toNumber();

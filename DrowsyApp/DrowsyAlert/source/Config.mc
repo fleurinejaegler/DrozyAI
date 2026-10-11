@@ -6,6 +6,9 @@ module Config {
     const BASELINE_SECONDS = 300;
     const COVERAGE = 0.90;
     const ACCEL_RATE = 25;
+    const GYRO_RATE = 25;
+    const TELEMETRY_MS = 1000;
+    const TELEMETRY_MAX_SAMPLES = 25;
     const SENSOR_FRESH_MS = 3000;
     const RESULT_FRESH_MS = 10000;
     const WARNING = 0.70;

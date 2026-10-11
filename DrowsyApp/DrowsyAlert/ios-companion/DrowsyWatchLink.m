@@ -9,6 +9,7 @@
 @property(nonatomic) BOOL ready;
 @property(nonatomic) BOOL sending;
 @property(nonatomic) NSInteger generation;
+@property(nonatomic) NSInteger lastTelemetrySequence;
 @end
 @implementation DrowsyWatchLink
 - (instancetype)initWithURLScheme:(NSString *)scheme {
@@ -93,8 +94,21 @@
     NSDictionary *payload = message;
     dispatch_async(dispatch_get_main_queue(), ^{
         if (![payload[@"protocol"] isEqual:@1]) return;
+        if ([payload[@"type"] isEqual:@"telemetry"]) {
+            if (![payload[@"session"] isEqual:self.session] || ![payload[@"schema"] isEqual:@1] ||
+                ![payload[@"source"] isEqual:@"watch_sensors"]) return;
+            if (![payload[@"sequence"] isKindOfClass:[NSNumber class]] ||
+                ![payload[@"sentAt"] isKindOfClass:[NSNumber class]]) return;
+            NSInteger seq = [payload[@"sequence"] integerValue];
+            NSTimeInterval age = [NSDate date].timeIntervalSince1970 - [payload[@"sentAt"] doubleValue];
+            if (seq <= self.lastTelemetrySequence || age > 10 || age < -2) return;
+            self.lastTelemetrySequence = seq;
+            if (self.onTelemetry) self.onTelemetry(payload);
+            return;
+        }
         if ([payload[@"type"] isEqual:@"hello_reply"] && [payload[@"status"] isEqual:@"ready"] &&
             [payload[@"session"] isKindOfClass:[NSString class]]) {
+            if (![self.session isEqual:payload[@"session"]]) self.lastTelemetrySequence = 0;
             self.session = payload[@"session"]; [self status:@"Watch handshake ready"];
         } else if ([payload[@"status"] isEqual:@"wrong_session"]) {
             self.session = nil; [self status:@"Watch restarted; handshake required"];

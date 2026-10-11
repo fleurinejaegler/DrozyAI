@@ -16,6 +16,8 @@ class PhoneAlertBridge {
     var sendAt = 0;
     var sendFailed = false;
     var pendingReply = null;
+    var lastTelemetryAt = 0;
+    var telemetrySequence = 0;
     function initialize(token as String) { session = token; alerts = new AlertController(); }
     function start() {
         try { Communications.registerForPhoneAppMessages(method(:onMessage)); }
@@ -23,6 +25,7 @@ class PhoneAlertBridge {
     }
     function stop() {
         alerts.stop();
+        pendingReply = null;
         try { Communications.registerForPhoneAppMessages(null); } catch (ex) {}
     }
     function onMessage(msg as Communications.PhoneAppMessage) as Void {
@@ -67,7 +70,8 @@ class PhoneAlertBridge {
     function fresh(now) { return lastAt != null && now - lastAt <= 15000; }
     function tick(now) {
         alerts.tick(now);
-        if (pendingReply != null && (!sendBusy || now - sendAt >= 5000)) {
+        if (sendBusy && now - sendAt >= 5000) { sendFailed = true; }
+        if (pendingReply != null && !sendBusy) {
             var reply = pendingReply; pendingReply = null; send(reply);
         }
     }
@@ -77,10 +81,17 @@ class PhoneAlertBridge {
                 "sequence" => lastAlertSequence, "source" => "phone_video"});
         }
     }
+    function sendTelemetry(sensors as SensorCollector, now, testMode) {
+        // Receipts/acknowledgments have priority. Drop rather than queue telemetry.
+        if (testMode || !transportEnabled || !fresh(now) || pendingReply != null || sendBusy ||
+            now - lastTelemetryAt < Config.TELEMETRY_MS) { return; }
+        lastTelemetryAt = now; telemetrySequence += 1;
+        send(sensors.telemetry.packet(sensors, now, Time.now().value(), telemetrySequence, session));
+    }
     function send(reply as Dictionary) {
         if (!transportEnabled) { return; }
         var now = System.getTimer();
-        if (sendBusy && now - sendAt < 5000) {
+        if (sendBusy) {
             // One bounded slot; preserve the user's acknowledgment over receipts.
             if (pendingReply == null || stringIs(reply["type"], "user_acknowledged")) { pendingReply = reply; }
             return;

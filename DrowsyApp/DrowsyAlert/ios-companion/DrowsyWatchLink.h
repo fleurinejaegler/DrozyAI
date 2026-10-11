@@ -6,6 +6,8 @@
 @interface DrowsyWatchLink : NSObject <IQDeviceEventDelegate, IQAppMessageDelegate>
 @property(nonatomic, copy) void (^onStatus)(NSString *status);
 @property(nonatomic, copy) void (^onWatchMessage)(NSDictionary *message);
+// Watch telemetry uses NSNull for missing readings. Runs on the main queue.
+@property(nonatomic, copy) void (^onTelemetry)(NSDictionary *telemetry);
 - (instancetype)initWithURLScheme:(NSString *)scheme;
 - (void)selectWatch;
 - (NSArray<IQDevice *> *)devicesFromURL:(NSURL *)url;

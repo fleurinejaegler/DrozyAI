@@ -2,6 +2,39 @@ import Toybox.Test;
 import Toybox.Lang;
 import Toybox.Math;
 (:test)
+function testTelemetry(logger) {
+    var s = new SensorCollector(); var t = s.telemetry;
+    var p = t.packet(s, 1000, 100, 1, "test-session");
+    Test.assert(p["heartRateBpm"] == null);
+    Test.assert(p["spo2Percent"] == null);
+    Test.assert(p["temperatureC"] == null);
+    Test.assert(p["accelerometer"] == null);
+    Test.assert(p["gyroscope"] == null);
+    Test.assert(p["hrvRmssdMs"] == null);
+    s.hr = 72; s.hrAt = 1000; s.oxygen = 98; s.oxygenAt = 1000;
+    s.temperature = 24.5; s.temperatureAt = 1000;
+    var xs = []; var ys = []; var zs = [];
+    for (var i=0; i<30; i+=1) { xs.add(i); ys.add(null); zs.add(1000); }
+    t.acceleration = t.encodeAxes(xs, ys, zs, null, 25, "mg"); t.batchAt = 1000;
+    p = t.packet(s, 1000, 100, 2, "test-session");
+    Test.assertEqual(p["heartRateBpm"], 72);
+    Test.assertEqual(p["temperatureC"], 24.5);
+    var a = p["accelerometer"] as Dictionary;
+    var x = a["x"] as Array; var y = a["y"] as Array;
+    Test.assertEqual(x.size(), 25); Test.assert(y[0] == null);
+    Test.assertEqual(a["truncated"], true);
+    Test.assert(p["hrvRmssdMs"] == null); // HR alone never creates HRV.
+    p = t.packet(s, 5000, 104, 3, "test-session");
+    Test.assert(p["heartRateBpm"] == null); Test.assert(p["accelerometer"] == null);
+    Test.assert(p["temperatureC"] == null); Test.assert(p["spo2Percent"] == null);
+    for (var second=0; second<=60; second+=1) { t.addIntervals([second%2 == 0 ? 1000 : 1100], second*1000); }
+    Test.assert((t.hrv(60000)-100.0).abs() < 0.01);
+    Test.assert(t.hrv(65000) == null);
+    t.addIntervals([1000], 65000); Test.assert(t.hrv(65000) == null);
+    t.addIntervals([null, 1000], 66000); Test.assertEqual(t.beats.size(), 1);
+    return true;
+}
+(:test)
 function testAlertThresholds(logger) {
     var a = new AlertController(); a.signalEnabled = false;
     a.evaluate(testResult(0.70, 1000), 1000);
