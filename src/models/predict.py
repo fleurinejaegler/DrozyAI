@@ -1,39 +1,9 @@
-"""Real-time drowsiness score interface for the DrozyAI driver app.
+"""Inference for the shipped four-feature RobustScaler + gradient boosting pipeline.
 
-Exposes a single function, `predict_score`, that takes one 60-second
-window of wearable features and returns a calibrated drowsiness
-probability in [0, 1].
-
-The probability is produced by the Person 2 baseline
-(HistGradientBoostingClassifier + RobustScaler + isotonic calibration),
-trained on the UL-DD dataset with 5-fold stratified cross-validation.
-
-Usage
------
-    from src.models.predict import load_model, predict_score
-
-    # Option A: one-shot call (loads model from disk)
-    score = predict_score({
-        "hr_mean": 75.3,
-        "rmssd": 0.052,
-        "temp_trend": -0.0001,
-        "motion_var": 8.2,
-    })
-    print(score)   # e.g. 0.68
-
-    # Option B: load the model once, then call many times
-    model = load_model()
-    for window in stream:
-        score = predict_score(window, model=model)
-
-Notes
------
-- The score is a *real probability*: 0.7 means about a 70% chance
-  that the current window is drowsy.
-- Missing feature values are not allowed; the caller must fill them
-  (for example with the driver's baseline).
-- The model must be trained first with:
-      python -m src.models.baseline
+The saved artifact does not include the isotonic mapping used for evaluation.
+Its predict_proba output is exposed as an uncalibrated research score.
+Required order: hr_mean, rmssd, temp_trend, motion_var.
+Use the exact training preprocessing; do not impute missing sensor fields.
 """
 
 from __future__ import annotations
@@ -70,7 +40,12 @@ def load_model(model_path: Path | str = DEFAULT_MODEL_PATH):
             "Run `python -m src.models.baseline` first to train and "
             "save the model."
         )
-    return joblib.load(path)
+    model = joblib.load(path)
+    if getattr(model, 'n_features_in_', None) != len(FEATURE_COLUMNS):
+        raise ValueError('Watch artifact feature width differs from the four-feature contract')
+    if list(getattr(model, 'classes_', [])) != [0, 1]:
+        raise ValueError('Watch artifact must have classes [0, 1]')
+    return model
 
 
 def predict_score(
@@ -78,14 +53,13 @@ def predict_score(
     model: Any | None = None,
     model_path: Path | str = DEFAULT_MODEL_PATH,
 ) -> float:
-    """Return the calibrated drowsiness probability for one window.
+    """Return the uncalibrated drowsiness score for one window.
 
     Parameters
     ----------
     features : mapping, ndarray, or list
-        Either a dict with the 5 feature keys, or an array-like of
-        length 5 in the order [hr_mean, rmssd, temp_trend, eda_peaks,
-        motion_var].
+        Either a dict with the four feature keys, or an array-like of
+        length 4 in the order [hr_mean, rmssd, temp_trend, motion_var].
     model : fitted Pipeline, optional
         If provided, it is used directly. Otherwise loaded from
         `model_path`.
@@ -95,9 +69,9 @@ def predict_score(
     Returns
     -------
     float
-        Calibrated probability in [0, 1]. Higher means more drowsy.
+        Uncalibrated score in [0, 1]. Higher means more drowsy.
     """
-    # Build the (1, 5) input array
+    # Build the (1, 4) input array
     if isinstance(features, Mapping):
         x = np.array(
             [[float(features[c]) for c in FEATURE_COLUMNS]],
@@ -112,9 +86,9 @@ def predict_score(
             )
         x = arr
 
-    if np.isnan(x).any():
+    if not np.isfinite(x).all():
         raise ValueError(
-            "Features contain NaN. Fill missing values before "
+            "Features contain non-finite values. Fill missing values before "
             "calling predict_score."
         )
 
@@ -129,11 +103,11 @@ def predict_score_batch(
     model: Any | None = None,
     model_path: Path | str = DEFAULT_MODEL_PATH,
 ) -> np.ndarray:
-    """Return calibrated probabilities for many windows at once.
+    """Return uncalibrated scores for many windows at once.
 
     Parameters
     ----------
-    features_matrix : (N, 5) array-like
+    features_matrix : (N, 4) array-like
     model, model_path : same as predict_score
 
     Returns
@@ -145,8 +119,8 @@ def predict_score_batch(
         raise ValueError(
             f"Expected shape (N, {len(FEATURE_COLUMNS)}), got {X.shape}."
         )
-    if np.isnan(X).any():
-        raise ValueError("Features contain NaN.")
+    if not np.isfinite(X).all():
+        raise ValueError("Features contain non-finite values.")
 
     if model is None:
         model = load_model(model_path)

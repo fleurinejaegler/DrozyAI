@@ -1,8 +1,8 @@
 """Read-only adapter to the teammate's existing src.models.predict interface.
 
-Raw Garmin telemetry is not compatible with the current UL-DD five-feature model.
-This adapter does not fabricate EDA, substitute sensor temperature for skin
-temperature, or silently change the trained RMSSD/motion preprocessing.
+This legacy stateless adapter accepts four prepared features. Raw packets need
+the stateful experimental window adapter in web/garmin_features.py, which the
+connected launcher uses. No sensor values are invented here.
 """
 from __future__ import annotations
 
@@ -48,7 +48,7 @@ class RepoModelAdapter:
         if not self.model_path.is_file():
             return self._result(None, "model_not_connected", ["Trained artifact missing"])
         return self._result(None, "insufficient_data", [
-            "Garmin feed has no EDA; eda_peaks cannot be supplied",
+            "Use the stateful web GarminWindow adapter to collect the four-feature window",
             "Sensor.Info temperature is not established as the training skin-temperature input",
             "Training RMSSD uses successive per-second IBI means, unlike watch beat-level RMSSD",
             "Training accelerometer units/scale and 32 Hz aggregation need an explicit Garmin mapping",

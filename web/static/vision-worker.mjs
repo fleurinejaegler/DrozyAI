@@ -1,9 +1,11 @@
+let meshRatios;
 let detector;
 self.onmessage = async ({ data }) => {
   try {
     if (data.type === 'init') {
       // Classic worker permits the WASM loader's importScripts call.
       const { FaceLandmarker, FilesetResolver } = await import('./vendor/vision_bundle.mjs');
+      ({ meshRatios } = await import('./model-features.mjs'));
       const vision = await FilesetResolver.forVisionTasks(new URL('./vendor/wasm', self.location.href).href);
       detector = await FaceLandmarker.createFromOptions(vision, {
         baseOptions: { modelAssetPath: new URL('./vendor/face_landmarker.task', self.location.href).href, delegate: 'CPU' },
@@ -21,6 +23,7 @@ self.onmessage = async ({ data }) => {
         const closure = Number.isFinite(left) && Number.isFinite(right) ? (left + right) / 2 : null;
         const points = result.faceLandmarks?.[0];
         self.postMessage({ type: 'result', t: data.t, closure, ms: performance.now() - start,
+          ratios: meshRatios(points, data.bitmap.width, data.bitmap.height),
           points: points ? [33, 133, 159, 145, 362, 263, 386, 374, 1, 61, 291].map(i => points[i]) : [] });
       } finally { data.bitmap.close(); }
     }

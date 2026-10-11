@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="A local camera and Garmin heart-rate dashboard for the Drowsy research prototype.">
+  <meta name="description" content="A local camera and Garmin sensor dashboard for the Drowsy research prototype.">
   <title>Drowsy · Live monitor</title><link rel="icon" href="data:,">
   <link rel="stylesheet" href="/static/style.css">
 </head>
@@ -13,11 +13,11 @@
     <a class="nav active" href="#monitor"><span>◉</span> Live monitor</a>
     <a class="nav" href="#signals"><span>⌁</span> Your signals</a>
     <a class="nav" href="#method"><span>☷</span> How it works</a>
-    <div class="sidebar-bottom"><span class="local-dot"></span> Processing on your Mac<br><small>Camera frames stay in this browser.</small></div>
+    <div class="sidebar-bottom"><span class="local-dot"></span> <span id="compute-location">Local processing</span><br><small>Camera frames stay in this browser.</small></div>
   </aside>
   <main id="monitor">
     <header class="topbar"><span class="breadcrumb">Workspace <span>/</span> <strong>Live monitor</strong></span><span class="prototype">RESEARCH PROTOTYPE</span></header>
-    <div class="page-heading"><div><p class="eyebrow">A LITTLE MORE AWARE.</p><h1>Your live dashboard</h1><p class="subtitle">Your camera and watch signals, together in one place.</p></div><div class="session"><span id="session-dot"></span><span id="session-label">Session not started</span><strong id="session-time">00:00</strong></div></div>
+    <div class="page-heading"><div><p class="eyebrow">A LITTLE MORE AWARE.</p><h1>Your live dashboard</h1><p class="subtitle">Mac camera + Garmin watch · models running on GX10.</p></div><div class="session"><span id="session-dot"></span><span id="session-label">Session not started</span><strong id="session-time">00:00</strong></div></div>
     <section class="overview" aria-label="Live monitoring">
       <article class="panel camera-panel">
         <div class="panel-head"><h2>Camera</h2><span id="camera-badge" class="badge">Off</span></div>
@@ -27,40 +27,56 @@
           <div class="camera-footer"><span id="tracking-label">Camera inactive</span><span id="fps">— fps</span></div>
         </div>
         <div class="camera-actions"><label class="sr-only" for="camera-select">Camera source</label><select id="camera-select"><option value="">Default camera</option></select><button class="primary" id="camera-button">Start camera <span>↗</span></button></div>
-        <p id="camera-message" class="hint" role="status">Camera access starts only when you press Start camera.</p>
+        <button id="recalibrate-button" class="text-button" disabled>Reset 15-second baseline</button>
+        <p id="camera-message" class="hint" role="status">Start the camera, then look ahead normally for the first 15 seconds to set your neutral baseline.</p>
       </article>
       <article id="level-panel" class="panel level-panel" data-level="Waiting">
         <div class="panel-head"><h2>Drowsiness cues</h2><span class="badge experimental">Experimental</span></div>
         <div class="level-orbit"><svg viewBox="0 0 220 145" aria-hidden="true"><path class="gauge-track" d="M 30 115 A 80 80 0 0 1 190 115"/><path id="gauge-fill" class="gauge-fill" d="M 30 115 A 80 80 0 0 1 190 115" pathLength="100"/></svg><div class="level-value"><span id="level">Waiting</span><small id="level-subtitle">FOR CAMERA DATA</small></div></div>
-        <p id="level-reason" class="level-reason" role="status">Start the camera to collect eye-closure observations.</p>
+        <p id="level-reason" class="level-reason" role="status">Start the camera or connect the Garmin app to collect model inputs.</p>
         <div class="scale"><span>Low</span><span>Elevated</span><span>High</span></div>
-        <div class="level-source"><span class="mini-dot"></span> Camera-based rules · combined model pending</div>
-        <div class="level-note">This is an unvalidated cue indicator. A low reading does not establish that you are alert.</div>
+        <div class="level-source"><span class="mini-dot"></span> <span id="level-source-text">Models connected · waiting for data</span></div>
+        <p id="component-scores" class="hint">Watch — · Video —</p><div class="level-note">This is an unvalidated cue indicator. A low reading does not establish that you are alert.</div>
       </article>
+    </section>
+    <section class="signals-section" aria-label="Individual model scores">
+      <div class="section-heading"><h2>Model scores</h2><span>Main score averages fresh watch + video scores</span></div>
+      <div class="model-score-grid">
+        <article class="metric panel"><div class="metric-label">Watch model</div><div class="metric-value"><span id="score-watch">—</span><small>/ 100</small></div><p id="score-watch-note">Collecting watch inputs</p></article>
+        <article class="metric panel"><div class="metric-label">Video · baseline adjusted</div><div class="metric-value"><span id="score-video">—</span><small>/ 100</small></div><p id="score-video-note">Collecting video inputs</p></article>
+      </div>
+    </section>
+    <section class="panel advisor-panel" aria-labelledby="advisor-title">
+      <div class="panel-head"><div><p class="eyebrow">YOUR SIGNALS, EXPLAINED</p><h2 id="advisor-title">Local AI advisor</h2></div><span id="advisor-status" class="badge">Waiting for data</span></div>
+      <p id="advisor-explanation" class="advisor-explanation" role="status">Start the camera or connect the watch. An explanation will appear after a valid model window.</p>
+      <p id="advisor-detail" class="hint">Checking local model…</p>
+      <details class="advisor-sample"><summary>Try a sample explanation</summary><p class="hint">Uses sample model inputs, separately from your live readings and watch alerts.</p><button id="advisor-sample-button" class="secondary">Run sample</button><p id="advisor-sample-result" class="hint" role="status" hidden></p></details>
     </section>
     <section id="signals" class="signals-section" aria-label="Live metrics">
       <div class="section-heading"><h2>Your signals</h2><span>— means no usable reading</span></div>
       <div class="metrics-grid">
         <article class="metric panel"><div class="metric-label">Heart rate <span class="metric-icon heart">♡</span></div><div class="metric-value"><span id="heart-rate">—</span><small>bpm</small></div><p id="heart-note">Watch not connected</p></article>
+        <article class="metric panel"><div class="metric-label">Blood oxygen (SpO₂) <span class="metric-icon">◉</span></div><div class="metric-value"><span id="blood-oxygen">—</span><small>%</small></div><p id="oxygen-note">No blood oxygen reading from watch</p></article>
+        <article class="metric panel"><div class="metric-label">Watch temperature <span class="metric-icon">♧</span></div><div class="metric-value"><span id="watch-temperature">—</span><small>°C</small></div><p id="temperature-card-note">Waiting for first reading</p></article>
         <article class="metric panel"><div class="metric-label">Eye-closure fraction <span class="metric-icon">◉</span></div><div class="metric-value"><span id="eye-fraction">—</span><small>%</small></div><p>Observed time · up to 60 seconds</p></article>
         <article class="metric panel"><div class="metric-label">Blinks <span class="metric-icon">⌁</span></div><div class="metric-value"><span id="blink-count">—</span><small>events</small></div><p>Completed closures · last 60 seconds</p></article>
         <article class="metric panel"><div class="metric-label">Current eye closure <span class="metric-icon">◷</span></div><div class="metric-value"><span id="closure-duration">—</span><small>sec</small></div><p>Continuous closure, while tracked</p></article>
       </div>
     </section>
     <section class="details-grid" aria-label="Trends and connections">
-      <article class="panel trend-panel"><div class="panel-head"><div><h2>Heart-rate trend</h2><p class="small-muted">Last 5 minutes · Mac receipt time</p></div><span id="heart-delta" class="badge">Baseline pending</span></div><div class="chart-wrap"><canvas id="heart-chart" aria-label="Heart-rate history chart" role="img"></canvas><div id="chart-empty" class="chart-empty"><span class="empty-wave">⌁</span><p>Your heart-rate history will appear here.</p><small>Connect your watch to begin.</small></div></div></article>
-      <article class="panel connections"><div class="panel-head"><h2>Connections</h2><span class="badge">Live sources</span></div><div class="source-row"><span class="source-symbol">▣</span><div><strong>Camera</strong><small id="camera-source">No camera selected</small></div><span id="camera-state" class="source-state">Off</span></div><div class="source-row"><span class="source-symbol">◷</span><div><strong id="watch-name">Garmin Forerunner 970</strong><small id="watch-state">Not connected</small></div><span id="watch-dot" class="connection-dot"></span></div><p id="watch-message" class="hint" role="status">On your watch: Settings → Health &amp; Wellness → Wrist Heart Rate → Broadcast Heart Rate.</p><div class="watch-actions"><button id="scan-button" class="secondary">Scan for watch</button><button id="disconnect-button" class="text-button" hidden>Disconnect</button></div><div id="watch-devices"></div><div class="coverage"><span>Visible-face coverage</span><strong id="coverage">—</strong><div class="coverage-track"><div id="coverage-fill"></div></div></div></article>
+      <article class="panel trend-panel"><div class="panel-head"><div><h2>Heart-rate trend</h2><p class="small-muted">Last 5 minutes · receipt time</p></div><span id="heart-delta" class="badge">Baseline pending</span></div><div class="chart-wrap"><canvas id="heart-chart" aria-label="Heart-rate history chart" role="img"></canvas><div id="chart-empty" class="chart-empty"><span class="empty-wave">⌁</span><p>Your heart-rate history will appear here.</p><small>Connect your watch to begin.</small></div></div></article>
+      <article class="panel connections"><div class="panel-head"><h2>Connections</h2><span class="badge">Live sources</span></div><div class="source-row"><span class="source-symbol">▣</span><div><strong>Camera</strong><small id="camera-source">No camera selected</small></div><span id="camera-state" class="source-state">Off</span></div><div class="source-row"><span class="source-symbol">◷</span><div><strong id="watch-name">Garmin Forerunner 970</strong><small id="watch-state">Not connected</small></div><span id="watch-dot" class="connection-dot"></span></div><p id="watch-message" class="hint" role="status">For full sensor input, open DrowsyAlert on the watch and connect DrowsyRelay on iPhone. Bluetooth HR below is an optional display source.</p><div class="watch-actions"><button id="scan-button" class="secondary">Scan for watch</button><button id="disconnect-button" class="text-button" hidden>Disconnect</button></div><div id="watch-devices"></div><p id="temperature-note" class="hint">Temperature: waiting for first reading</p><p id="motion-note" class="hint">Motion: waiting for measured samples</p><button id="pairing-button" class="secondary">Show phone pairing details</button><p id="pairing-details" class="hint" hidden></p><p id="relay-status" class="hint">Phone relay: checking connection</p><div class="coverage"><span>Visible-face coverage</span><strong id="coverage">—</strong><div class="coverage-track"><div id="coverage-fill"></div></div></div></article>
     </section>
     <section class="panel model-test" aria-labelledby="model-test-title">
-      <div class="panel-head"><div><p class="eyebrow">RECORDED FEATURES</p><h2 id="model-test-title">Test the trained facial model</h2></div><span id="model-availability" class="badge">Checking models…</span></div>
+      <div class="panel-head"><div><p class="eyebrow">RECORDED FEATURES</p><h2 id="model-test-title">Test the connected models</h2></div><span id="model-availability" class="badge">Checking models…</span></div>
       <p>The small TCN reads a compatible 60-second feature sequence. This test is separate from the live camera indicator above.</p>
       <label for="feature-file">Choose a feature JSON file</label>
       <input id="feature-file" type="file" accept=".json,application/json">
-      <p id="model-test-message" class="hint" role="status">No feature file selected. Live camera-to-TCN integration is pending.</p>
+      <p id="model-test-message" class="hint" role="status">No feature file selected. Live camera predictions begin after geometry calibration and at least 10 observed face seconds. Partial windows are labeled.</p>
       <div class="model-test-result"><strong id="model-test-score">—</strong><span> / 100 · model score</span></div>
       <p class="hint">Uncalibrated research score. It is not a percentage chance of drowsiness.</p>
     </section>
-    <section id="method" class="panel method-panel"><div><p class="eyebrow">WHAT’S BEHIND THE READING</p><h2>Signals first. A combined model next.</h2><p>The live indicator uses observed eye closure. Heart rate is displayed alongside it and does not yet change the level. The trained TCN and watch model are available through the local API for matching features. HRV, wrist motion and blood oxygen remain unavailable until their live data paths are verified.</p></div><details><summary>View prototype rules and limitations <span>+</span></summary><p>Eye closure is estimated from face-model expression scores, using a threshold of 0.55. This is an eye-closure proxy, not a validated PERCLOS measurement. A completed closure of 80–800 ms counts as a blink. The rolling fraction uses up to 60 seconds of valid observed time and needs at least 15 seconds and 80% tracking coverage.</p><p>Elevated: current closure ≥0.8 s or rolling fraction ≥12%. High: current closure ≥1.5 s or rolling fraction ≥25%. These are adjustable demonstration rules, not thresholds learned or validated on your dataset. Tracking gaps are excluded; missing signals never imply low drowsiness.</p><p>Heart rate comes from Bluetooth Heart Rate Measurement notifications. No beat intervals, raw optical signal, motion or SpO₂ are inferred from BPM. The trend comparison uses the first available 30-second portion of the displayed history; it is descriptive and does not establish drowsiness.</p><p>Face landmarks: <a href="https://developers.google.com/edge/mediapipe/solutions/vision/face_landmarker/web_js" target="_blank" rel="noreferrer">Google MediaPipe</a>. Bluetooth bridge: <a href="https://bleak.readthedocs.io/" target="_blank" rel="noreferrer">Bleak</a>. Camera frames remain in browser memory; no video recording or upload is implemented. Feature files selected in the model test are sent only to this Mac's local server, used in memory and not saved.</p></details></section>
+    <section id="method" class="panel method-panel"><div><p class="eyebrow">WHAT’S BEHIND THE READING</p><h2>Watch and video models, together.</h2><p>The saved gradient boosting watch model and small video TCN now drive the model score. When both have fresh, aligned windows, their 50/50 average drives the main gauge and watch alert; the local AI advisor explains the result without changing the score or action. Partial video windows remain visible as provisional outputs. Because the trained model can return spurious high scores with missing frames, partial video is excluded from the main score and alerts; full eligible watch/video scores are averaged. Missing sources remain unavailable. Live RGB geometry and Garmin sensor transfer are experimental. Temperature uses the last real value when a packet returns null; motion variance uses the last measured value for gaps up to five seconds; genuine beat intervals are never inferred from heart rate.</p></div><details><summary>View prototype rules and limitations <span>+</span></summary><p>Eye closure is estimated from face-model expression scores, using a threshold of 0.55. This is an eye-closure proxy, not a validated PERCLOS measurement. A completed closure of 80–800 ms counts as a blink. The rolling fraction uses up to 60 seconds of valid observed time and needs at least 15 seconds and 80% tracking coverage.</p><p>The main gauge shows the saved models’ uncalibrated score from 0 to 100. Live alerts use 70 for a break after three consecutive model updates, and 90 for stopping safely. These thresholds and device transfer need validation; the score is not a percentage chance of drowsiness. Missing or stale model windows never imply low drowsiness.</p><p>Heart rate comes from Bluetooth Heart Rate Measurement notifications. Genuine intervals and motion come separately from the Connect IQ app; none are inferred from BPM. The trend comparison uses the first available 30-second portion of the displayed history; it is descriptive and does not establish drowsiness.</p><p>Face landmarks: <a href="https://developers.google.com/edge/mediapipe/solutions/vision/face_landmarker/web_js" target="_blank" rel="noreferrer">Google MediaPipe</a>. Bluetooth bridge: <a href="https://bleak.readthedocs.io/" target="_blank" rel="noreferrer">Bleak</a>. Camera frames remain in browser memory; only numeric geometry/event features are sent to the local model server. Feature files selected in the model test are sent only to the GX10 through the SSH connection, used in memory and not saved.</p></details></section>
     <footer><span><span class="local-dot"></span> Local session · no video recording</span><button id="export-button" class="text-button">Export session metrics ↓</button></footer>
   </main>
   <script type="module" src="/static/app.js"></script>

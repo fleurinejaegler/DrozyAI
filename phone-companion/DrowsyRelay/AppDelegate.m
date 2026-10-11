@@ -12,7 +12,11 @@
 }
 - (BOOL)application:(UIApplication *)app openURL:(NSURL *)url options:(NSDictionary<UIApplicationOpenURLOptionsKey,id> *)options {
     NSString *source = options[UIApplicationOpenURLOptionsSourceApplicationKey];
-    if (![url.scheme isEqual:@"drowsyrelay-ciq"] || ![source isEqual:IQGCMBundle]) return NO;
+    if (![url.scheme isEqual:@"drowsyrelay-ciq"]) return NO;
+    // UIKit can omit sourceApplication. Validate it when supplied, and let
+    // Garmin's parser validate the device-selection URL before using devices.
+    if (source && ![source isEqual:IQGCMBundle] && ![source isEqual:IQGCMInternalBetaBundle]) return NO;
+    NSLog(@"Drowsy watch selection callback received (source: %@)", source ?: @"not supplied");
     [(RelayViewController *)self.window.rootViewController selectDevicesFromURL:url]; return YES;
 }
 - (void)applicationDidEnterBackground:(UIApplication *)app { [(RelayViewController *)self.window.rootViewController pauseRelay]; }

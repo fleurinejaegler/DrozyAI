@@ -1,0 +1,13 @@
+# Tested on Python 3.12; preparation mode only, no ML packages.
+Flask==3.1.2
+pydantic==2.14.0
+pydantic-core==2.50.0
+annotated-types==0.8.0
+typing-extensions==4.16.0
+typing-inspection==0.4.4
+blinker==1.9.0
+click==8.5.0
+itsdangerous==2.2.0
+Jinja2==3.1.6
+MarkupSafe==3.0.4
+Werkzeug==3.1.9

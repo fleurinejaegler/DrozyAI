@@ -2,6 +2,25 @@ import Toybox.Test;
 import Toybox.Lang;
 import Toybox.Math;
 (:test)
+function testContinuousRemoteScore(logger) {
+    var app = getApp();
+    var now = Toybox.System.getTimer();
+    app.alerts.signalEnabled = false;
+    Test.assert(app.acceptModelResult(testResult(0.42, now-1)));
+    Test.assertEqual(app.lastValidRisk, 0.42);
+    app.invalidateRemoteModelResult();
+    Test.assert(app.result[:riskScore] == null);
+    Test.assertEqual(app.lastValidRisk, 0.42);
+    Test.assertEqual(app.lastScoreAge(now + 12000), 12);
+    Test.assert(!app.acceptModelResult(testResult(99, now)));
+    Test.assertEqual(app.lastValidRisk, 0.42);
+    Test.assert(app.acceptModelResult(testResult(0, now)));
+    Test.assertEqual(app.lastValidRisk, 0);
+    app.live();
+    Test.assert(app.lastValidRisk == null);
+    return true;
+}
+(:test)
 class TestRemoteScoreSink {
     var alerts as AlertController;
     var received as Dictionary? = null;

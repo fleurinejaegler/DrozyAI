@@ -56,6 +56,6 @@ test('Xcode project parses and all file/build/target references resolve',()=>{
   const configurations=Object.values(objects).filter(item=>item.isa==='XCBuildConfiguration'&&item.buildSettings.INFOPLIST_FILE);
   assert.equal(configurations.length,2);
   for(const config of configurations)assert.ok(fs.existsSync(path.join(root,config.buildSettings.INFOPLIST_FILE)));
-  assert.match(fs.readFileSync(path.join(root,'DrowsyRelay/Info-Debug.plist'),'utf8'),/NSAllowsArbitraryLoads<\/key><true\/>/);
-  assert.match(fs.readFileSync(path.join(root,'DrowsyRelay/Info.plist'),'utf8'),/NSAllowsArbitraryLoads<\/key><false\/>/);
+  assert.match(fs.readFileSync(path.join(root,'DrowsyRelay/Info-Debug.plist'),'utf8'),/NSAllowsArbitraryLoads<\/key>\s*<true\s*\/>/);
+  assert.match(fs.readFileSync(path.join(root,'DrowsyRelay/Info.plist'),'utf8'),/NSAllowsArbitraryLoads<\/key>\s*<false\s*\/>/);
 });

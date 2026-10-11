@@ -93,7 +93,11 @@ class DrowsyAlertView extends WatchUi.View {
         var alert = app.displayAlerts();
         var phoneAlert = app.phoneAlertVisible();
         var risk = app.result[:status] == :ready && now - app.result[:timestamp] <= Config.RESULT_FRESH_MS ? app.result[:riskScore] : null;
-        var value = risk == null ? "--" : (risk * 100).format("%.0f");
+        // Cached numbers are presentation history only. Alerts and gauge colors
+        // continue to use the fresh result, never the remembered value.
+        var oldScore = risk == null && app.lastValidRisk != null;
+        var shownRisk = oldScore ? app.lastValidRisk : risk;
+        var value = shownRisk == null ? "--" : (shownRisk * 100).format("%.0f");
         var high = alert.level == 2;
         var warning = alert.level == 1 || (risk != null && risk >= Config.WARNING);
         var flashing = alert.flashing(now);
@@ -112,7 +116,8 @@ class DrowsyAlertView extends WatchUi.View {
             triangle(dc, 139, fg, bg);
             if (high) { alertWaves(dc, fg); }
             score(dc, value, 222, fg);
-            if (phoneAlert) { text(dc, 227, 266, 13, "WATCH RISK SCORE", fg); }
+            if (oldScore) { text(dc, 227, 266, 13, "LAST SCORE | " + app.lastScoreAge(now).toString() + "s old", fg); }
+            else if (phoneAlert) { text(dc, 227, 266, 13, "MODEL SCORE", fg); }
             text(dc, 227, 294, 26, phoneAlert ? "PHONE CAMERA ALERT" : (high ? "HIGH DROWSINESS" : "DROWSINESS RISING"), fg);
             text(dc, 227, 329, 29, high ? "STOP SAFELY" : "TAKE A BREAK", fg);
             heart(dc, 155, 364, fg);
@@ -123,7 +128,7 @@ class DrowsyAlertView extends WatchUi.View {
             gauge(dc, risk, accent, muted);
             text(dc, 227, 191, 100, value, fg);
             text(dc, 227, 254, 26, "/100", 0xAAB7BC);
-            text(dc, 227, 290, risk == null ? 17 : 29, risk == null ? app.status(now) : (risk >= Config.WARNING ? "CONFIRMING" : "LOW"), risk == null ? 0xAAB7BC : accent);
+            text(dc, 227, 290, risk == null ? 17 : 29, oldScore ? "LAST | " + app.lastScoreAge(now).toString() + "s old" : (risk == null ? app.status(now) : (risk >= Config.WARNING ? "CONFIRMING" : "LOW")), risk == null ? 0xAAB7BC : accent);
             heart(dc, 148, 333, 0xFF3150);
             text(dc, 240, 336, 32, hr + " bpm", fg);
             text(dc, 227, 368, 15, app.isTestMode() ? "TEST - SIMULATED DATA" : "HEART RATE", 0xAAB7BC);

@@ -23,6 +23,7 @@
 @property(nonatomic, strong) UITextField *serverURL;
 @property(nonatomic, strong) UITextField *serverToken;
 @property(nonatomic, strong) UILabel *serverStatus;
+@property(nonatomic, strong) NSArray<IQDevice *> *pendingDevices;
 @end
 @implementation RelayViewController
 - (UIButton *)button:(NSString *)title action:(SEL)action {
@@ -43,12 +44,12 @@
         [self button:@"Pause" action:@selector(pauseByUser)], [self button:@"Reload page" action:@selector(loadPage)]]];
     buttons.distribution = UIStackViewDistributionFillEqually;
     self.serverURL = [UITextField new]; self.serverURL.borderStyle = UITextBorderStyleRoundedRect;
-    self.serverURL.placeholder = @"Laptop URL: http://192.168.1.20:8765";
+    self.serverURL.placeholder = @"Laptop relay URL, for example http://192.168.1.20:8766";
     self.serverURL.text = [NSUserDefaults.standardUserDefaults stringForKey:@"relayURL"];
     self.serverURL.keyboardType = UIKeyboardTypeURL; self.serverURL.autocapitalizationType = UITextAutocapitalizationTypeNone;
     self.serverURL.autocorrectionType = UITextAutocorrectionTypeNo;
     self.serverToken = [UITextField new]; self.serverToken.borderStyle = UITextBorderStyleRoundedRect;
-    self.serverToken.placeholder = @"Pairing token from laptop terminal"; self.serverToken.secureTextEntry = YES;
+    self.serverToken.placeholder = @"Pairing token from laptop dashboard"; self.serverToken.secureTextEntry = YES;
     self.serverToken.autocorrectionType = UITextAutocorrectionTypeNo; self.serverToken.autocapitalizationType = UITextAutocapitalizationTypeNone;
     self.serverStatus = [UILabel new]; self.serverStatus.font = [UIFont preferredFontForTextStyle:UIFontTextStyleCaption1];
     self.serverStatus.numberOfLines = 2; self.serverStatus.text = @"Laptop relay disconnected • client ID: demo";
@@ -80,6 +81,11 @@
     self.backend.onStatus = ^(NSString *status) { weakSelf.serverStatus.text = status; };
     self.backend.onCommand = ^(NSDictionary *command) { [weakSelf.relay receiveWebsiteCommand:command]; };
     [self loadPage]; [self.relay start];
+    // IQDevice supports secure coding; retain only the watch previously shared
+    // through Garmin Connect. Pairing tokens and sensor readings are not saved.
+    NSData *saved = [NSUserDefaults.standardUserDefaults dataForKey:@"sharedGarminWatch"];
+    IQDevice *device = saved ? [NSKeyedUnarchiver unarchivedObjectOfClass:IQDevice.class fromData:saved error:nil] : nil;
+    if (device) [self.relay attach:device];
 }
 - (void)loadPage {
     self.pageReady = NO;
@@ -129,13 +135,40 @@
     handler(frame.mainFrame && [self trustedURL:frame.request.URL] && type == WKMediaCaptureTypeCamera ? WKPermissionDecisionGrant : WKPermissionDecisionDeny);
 }
 - (void)selectWatch { [self.relay selectWatch]; }
+- (void)attachSharedWatch:(IQDevice *)device {
+    NSData *saved = [NSKeyedArchiver archivedDataWithRootObject:device requiringSecureCoding:YES error:nil];
+    if (saved) [NSUserDefaults.standardUserDefaults setObject:saved forKey:@"sharedGarminWatch"];
+    self.pausedByUser = NO;
+    [self.relay attach:device];
+}
 - (void)selectDevicesFromURL:(NSURL *)url {
+    [self loadViewIfNeeded];
     NSArray<IQDevice *> *devices = [self.relay devicesFromURL:url];
-    if (devices.count == 0) { self.statusLabel.text = @"No shared watch. Pair it in Garmin Connect, then select again."; return; }
+    NSLog(@"Drowsy watch selection: %lu shared devices", (unsigned long)devices.count);
+    // A new response supersedes every previously shared device, including an
+    // empty response. Never silently reconnect a watch that is no longer shared.
+    self.pendingDevices = nil;
+    [NSUserDefaults.standardUserDefaults removeObjectForKey:@"sharedGarminWatch"];
+    [self.relay.watch stop];
+    if (devices.count == 0) {
+        self.statusLabel.text = @"Garmin Connect returned no shared watch. Connect your watch there, then tap Select watch again.";
+        [self.relay publishState]; return;
+    }
+    if (devices.count == 1) { [self attachSharedWatch:devices.firstObject]; return; }
+    self.pendingDevices = devices;
+    self.statusLabel.text = @"Garmin Connect shared multiple watches. Choose the watch running DrowsyAlert.";
+    [self showPendingWatchPicker];
+}
+- (void)showPendingWatchPicker {
+    // URL callbacks may arrive before UIKit reactivates the app. Present only
+    // when the view is visible; resumeRelay tries again after activation.
+    if (!self.pendingDevices.count || UIApplication.sharedApplication.applicationState != UIApplicationStateActive ||
+        !self.view.window || self.presentedViewController) return;
+    NSArray<IQDevice *> *devices = self.pendingDevices; self.pendingDevices = nil;
     UIAlertController *picker = [UIAlertController alertControllerWithTitle:@"Choose your watch" message:nil preferredStyle:UIAlertControllerStyleAlert];
     for (IQDevice *device in devices) {
         [picker addAction:[UIAlertAction actionWithTitle:device.friendlyName ?: device.modelName style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-            self.pausedByUser = NO; [self.relay attach:device];
+            [self attachSharedWatch:device];
         }]];
     }
     [picker addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
@@ -148,7 +181,8 @@
     [self.backend disconnect];
     [self.webView evaluateJavaScript:@"window.dispatchEvent(new Event('drowsy:pause'))" completionHandler:nil];
 }
-- (void)resumeRelay { if (!self.pausedByUser) [self.relay start]; }
+- (void)resumeRelay {
+    [self showPendingWatchPicker]; if (!self.pausedByUser) [self.relay start]; }
 - (void)connectLaptop {
     [self.view endEditing:YES];
     NSURL *url = [NSURL URLWithString:self.serverURL.text];

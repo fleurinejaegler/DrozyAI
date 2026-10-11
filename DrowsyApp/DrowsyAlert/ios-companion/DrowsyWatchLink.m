@@ -10,6 +10,7 @@
 @property(nonatomic) BOOL sending;
 @property(nonatomic) NSInteger generation;
 @property(nonatomic) NSInteger lastTelemetrySequence;
+@property(nonatomic, readwrite, copy) NSString *connectionStatus;
 @end
 @implementation DrowsyWatchLink
 - (instancetype)initWithURLScheme:(NSString *)scheme {
@@ -18,37 +19,65 @@
     }
     return self;
 }
-- (void)status:(NSString *)value { if (self.onStatus) self.onStatus(value); }
-- (void)selectWatch { [[ConnectIQ sharedInstance] showConnectIQDeviceSelection]; }
+- (void)status:(NSString *)value {
+    if ([self.connectionStatus isEqual:value]) return;
+    self.connectionStatus = value;
+    NSLog(@"Drowsy watch: %@", value); // No pairing tokens, raw URLs or sensor values.
+    if (self.onStatus) self.onStatus(value);
+}
+- (void)selectWatch {
+    [self status:@"Waiting for Garmin Connect to share your watch…"];
+    [[ConnectIQ sharedInstance] showConnectIQDeviceSelection];
+}
+- (void)reportDeviceStatus:(IQDeviceStatus)status {
+    switch (status) {
+        case IQDeviceStatus_BluetoothNotReady:
+            [self status:CBManager.authorization == CBManagerAuthorizationDenied
+                ? @"Bluetooth permission denied. Enable DrowsyRelay in iPhone Settings > Privacy & Security > Bluetooth."
+                : @"Bluetooth is not ready. Turn on iPhone Bluetooth and allow DrowsyRelay access."]; break;
+        case IQDeviceStatus_NotFound:
+            [self status:@"Shared watch not found. Check Garmin Connect is connected, then Select watch again."]; break;
+        case IQDeviceStatus_NotConnected:
+            [self status:@"Watch selected; waiting for Bluetooth connection. Keep the watch nearby and connected in Garmin Connect."]; break;
+        case IQDeviceStatus_Connected:
+            if (!self.ready) [self status:@"Watch connected; preparing Bluetooth messaging…"]; break;
+        default:
+            [self status:@"Watch registration unavailable. Select watch again."]; break;
+    }
+}
 - (NSArray<IQDevice *> *)devicesFromURL:(NSURL *)url {
     return [[ConnectIQ sharedInstance] parseDeviceSelectionResponseFromURL:url];
 }
 - (void)attachDevice:(IQDevice *)device {
     [self stop];
     self.device = device;
-    self.app = [IQApp appWithUUID:[[NSUUID alloc] initWithUUIDString:@"5222d277-26f2-4f31-8df5-77bfe31c4598"] device:device];
+    self.app = [IQApp appWithUUID:[[NSUUID alloc] initWithUUIDString:@"5222d277-26f2-4f31-8df5-77bfe31c4598"] storeUuid:nil device:device];
+    [self status:@"Watch selected; connecting Bluetooth…"];
     [[ConnectIQ sharedInstance] registerForDeviceEvents:device delegate:self];
     [[ConnectIQ sharedInstance] registerForAppMessages:self.app delegate:self];
-    [self status:@"Connecting to watch"];
 }
 - (void)deviceStatusChanged:(IQDevice *)device status:(IQDeviceStatus)status {
     if (![device.uuid isEqual:self.device.uuid]) return;
     if (status != IQDeviceStatus_Connected) {
         self.ready = NO; self.session = nil; self.sending = NO; self.generation++;
-        [self status:@"Watch disconnected; alert delivery unavailable"];
     }
+    [self reportDeviceStatus:status];
     // Connected alone is insufficient: wait for characteristics discovery.
 }
 - (void)deviceCharacteristicsDiscovered:(IQDevice *)device {
     if (![device.uuid isEqual:self.device.uuid]) return;
     self.ready = YES;
+    [self status:@"Bluetooth ready; contacting DrowsyAlert. Keep it open on the watch."];
     [self heartbeat];
 }
 - (BOOL)sendType:(NSString *)type severity:(NSString *)severity capturedAt:(NSDate *)captureTime {
     NSAssert([NSThread isMainThread], @"Use DrowsyWatchLink on main thread");
-    if (!self.ready || !self.app || self.sending) {
-        [self status:@"Watch unavailable or send busy; message not sent"]; return NO;
+    if (!self.app) { [self status:@"No watch selected. Tap Select watch first."]; return NO; }
+    if (!self.ready) {
+        [self reportDeviceStatus:[[ConnectIQ sharedInstance] getDeviceStatus:self.device]];
+        return NO;
     }
+    if (self.sending) { [self status:@"A watch message is still being sent. Try again shortly."]; return NO; }
     NSTimeInterval age = -[captureTime timeIntervalSinceNow];
     if (age > 10 || age < -2) { [self status:@"Old/future model result rejected"]; return NO; }
     if (![type isEqualToString:@"hello"] && !self.session) {
@@ -74,7 +103,17 @@
                 if (!owner || owner.generation != generation) return;
                 owner.sending = NO;
                 // Transport completion is NOT confirmation that watch accepted an alert.
-                [owner status:[NSString stringWithFormat:@"Bluetooth send: %@; check watch receipt", NSStringFromSendMessageResult(result)]];
+                if (result == IQSendMessageResult_Success) {
+                    [owner status:owner.session ? @"Watch handshake ready" : @"Bluetooth sent; waiting for DrowsyAlert to reply. Open DrowsyAlert on the watch."];
+                } else if (result == IQSendMessageResult_Failure_AppNotFound) {
+                    [owner status:@"DrowsyAlert was not found on this watch. Install the matching DrowsyAlert app."];
+                } else if (result == IQSendMessageResult_Failure_DeviceNotAvailable) {
+                    [owner status:@"Watch is unavailable. Check its connection in Garmin Connect, then Select watch again."];
+                } else if (result == IQSendMessageResult_Failure_DeviceIsBusy) {
+                    [owner status:@"Watch is busy. Keep DrowsyAlert open; the handshake will retry."];
+                } else {
+                    [owner status:[NSString stringWithFormat:@"Watch send failed: %@. Keep DrowsyAlert open and try Select watch again.", NSStringFromSendMessageResult(result)]];
+                }
             });
         } isTransient:YES];
     return YES;
@@ -87,6 +126,13 @@
     return [self sendType:@"clear" severity:nil capturedAt:captureTime];
 }
 - (void)heartbeat {
+    // A scheduled keepalive must not turn normal selection/discovery/in-flight
+    // states into an error, or submit another send while one is outstanding.
+    if (!self.app || !self.device || self.sending) return;
+    if (!self.ready) {
+        [self reportDeviceStatus:[[ConnectIQ sharedInstance] getDeviceStatus:self.device]];
+        return;
+    }
     [self sendType:self.session ? @"heartbeat" : @"hello" severity:nil capturedAt:[NSDate date]];
 }
 - (NSString *)watchSession { return self.session; }

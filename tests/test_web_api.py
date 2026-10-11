@@ -1,11 +1,14 @@
 """Test real artifact inference, its feature contract and local API boundaries."""
 import copy
+import os
+import tempfile
+from unittest.mock import patch
 import unittest
 
 import numpy as np
 import torch
 
-from src.features.video_features import CHANNELS, FEATURES
+from src.features.facial_sequence import CHANNELS, FEATURES
 from src.models.predict import predict_score
 from web.app import create_app
 
@@ -19,14 +22,22 @@ class OfflineBridge:
 class WebAPITests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.app = create_app(bridge=OfflineBridge())
+        cls.logs=tempfile.TemporaryDirectory(prefix="drozy-api-tests-")
+        cls.env=patch.dict(os.environ,{"DROZY_LOG_DIRECTORY":cls.logs.name});cls.env.start()
+        cls.app = create_app(bridge=OfflineBridge(),llm_enabled=False,relay_enabled=False)
         cls.app.config["TESTING"] = True
         cls.client = cls.app.test_client()
         cls.watch = {"hr_mean": 75.3, "rmssd": .052, "temp_trend": -.0001,
-                     "eda_peaks": 3, "motion_var": 8.2}
+                     "motion_var": 8.2}
         sequence = np.zeros((15, 60))
         sequence[[0, 1, 14]] = 1
         cls.payload = {"model": "small_tcn", "channels": CHANNELS, "sequence": sequence.tolist()}
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.app.extensions["relay_worker"].close()
+        cls.app.extensions["model_service"].close()
+        cls.env.stop();cls.logs.cleanup()
 
     def test_static_dashboard_and_models(self):
         for path in ["/", "/static/style.css", "/static/app.js", "/static/metrics.mjs",
@@ -35,7 +46,7 @@ class WebAPITests(unittest.TestCase):
                 self.assertEqual(response.status_code, 200, path)
         schema = self.client.get("/api/models").json
         self.assertEqual(schema["facial"]["sequence_shape"], [15, 60])
-        self.assertFalse(schema["facial"]["live_adapter_ready"])
+        self.assertTrue(schema["facial"]["live_adapter_ready"])
         self.assertEqual(self.client.get("/api/state").json["bpm"], None)
 
     def test_watch_matches_unchanged_teammate_predictor(self):
@@ -43,6 +54,22 @@ class WebAPITests(unittest.TestCase):
         self.assertEqual(result.status_code, 200)
         expected = predict_score(self.watch, model=self.app.extensions["watch_model"])
         self.assertAlmostEqual(result.json["score"], expected)
+
+    def test_sample_explanation_never_changes_live_sessions_or_calls_watch_transport(self):
+        service=self.app.extensions['model_service']
+        from unittest.mock import Mock
+        original=service.explainer
+        sessions=dict(service.sessions)
+        service.explainer=Mock(return_value={'reason':'Sample camera measurements.','latency_ms':20})
+        try:
+            response=self.client.post('/api/advisor/sample',json={})
+            self.assertEqual(response.status_code,200)
+            self.assertEqual(response.json['advice']['source'],'llm')
+            self.assertEqual(response.json['input_source'],'synthetic_demo')
+            self.assertFalse(response.json['transport_eligible'])
+            self.assertFalse(response.json['watch_alert_sent'])
+            self.assertEqual(service.sessions,sessions)
+        finally:service.explainer=original
 
     def test_watch_missing_and_nonfinite_features_are_rejected(self):
         for payload in [{"hr_mean": 72}, {**self.watch, "rmssd": None},
@@ -88,11 +115,9 @@ class WebAPITests(unittest.TestCase):
         body = {"watch_features": self.watch, "facial": self.payload}
         response = self.client.post("/api/fusion", json=body)
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json["mode"], "combined")
+        self.assertEqual(response.json["mode"], "watch_video")
         self.assertFalse(response.json["watch_alert_sent"])
-        empty = self.client.post("/api/fusion", json={}).json
-        self.assertIsNone(empty["fused_score"])
-        self.assertEqual(empty["traffic_light"], "unavailable")
+        self.assertEqual(self.client.post('/api/fusion',json={}).status_code,400)
 
     def test_cross_site_and_device_actions_are_blocked(self):
         self.assertEqual(self.client.post("/api/score", json=self.watch,

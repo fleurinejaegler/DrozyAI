@@ -83,6 +83,7 @@
 - (void)publishState {
     [self emit:@{@"protocol": @1, @"type": @"state", @"running": @(self.running),
         @"watchSession": self.watch.watchSession ?: NSNull.null,
+        @"watchConnectionStatus": self.watch.connectionStatus ?: @"Select your Garmin watch.",
         @"telemetryRecent": @(self.lastTelemetry != nil && NSDate.date.timeIntervalSince1970-self.lastTelemetryReceived <= 10),
         @"modelIntervalSeconds": @5}];
 }

@@ -11,6 +11,7 @@
 @property(nonatomic, copy) void (^onTransportResult)(NSNumber *sequence, BOOL success);
 @property(nonatomic, readonly, copy) NSString *watchSession;
 @property(nonatomic, readonly) BOOL watchReady;
+@property(nonatomic, readonly, copy) NSString *connectionStatus;
 // Returns the watch sequence, or nil if not submitted. The host must await receipt.
 - (NSNumber *)submitRelayCommand:(NSDictionary *)command;
 - (instancetype)initWithURLScheme:(NSString *)scheme;

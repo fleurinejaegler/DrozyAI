@@ -1,0 +1,64 @@
+{
+  "repository": "/Users/isaacoliva/Desktop/UCSC Hackathon/DrozyAI/DrozyAI",
+  "models_enabled": false,
+  "watch": {
+    "source": "src/models/baseline.py",
+    "artifact": "data/processed/baseline_model.pkl",
+    "features_in_source": [
+      "hr_mean",
+      "rmssd",
+      "temp_trend",
+      "motion_var"
+    ],
+    "window_seconds": 60,
+    "step_seconds": 5,
+    "artifact_loaded_or_executed": false,
+    "score_kind_from_training_source": "uncalibrated_score"
+  },
+  "facial": {
+    "source": "src/models/facial_baseline.py",
+    "tcn_shape": [
+      15,
+      60
+    ],
+    "logistic_feature_count_expected": 22,
+    "current_video_feature_columns": [
+      "left_ear_mean",
+      "right_ear_mean",
+      "perclos",
+      "longest_closure_sec",
+      "blink_rate_per_min",
+      "blink_duration_mean",
+      "inter_blink_interval_mean",
+      "mar_mean",
+      "yawn_count",
+      "max_yawn_duration",
+      "tracking_coverage"
+    ],
+    "current_video_CHANNELS_export": null,
+    "current_video_FEATURES_export": null,
+    "artifacts_loaded_or_executed": false,
+    "compatibility": "source schema mismatch; integration deferred"
+  },
+  "fusion": "src/features/fusion.py:fuse_scores",
+  "advisor": "src/advisor/llm_meta_advisor.py:meta_advisor",
+  "fallback": "src/advisor/fallback.py:rule_based_advisor",
+  "protected_sha256": {
+    "src/models/baseline.py": "58c939f459c35c4468c42f6fa3a7e8a945dfe8dc5ad9f8689d049cecaca6b620",
+    "src/models/predict.py": "e3fbbfe3167535d6f56056a3b4cc2d74bd7b42989d4404497d3250bcbe32cda5",
+    "src/models/facial_baseline.py": "b38089e9dfbd4438d426a2e2399995e8200eafd17a55c8542cc51d05759ab4d9",
+    "src/features/watch_features.py": "ecedd790bafb4823bf8652886ba52eda0d544e98871791f3354451a31e021003",
+    "src/features/video_features.py": "4f153b26eb930202f350eff11b741ba190080964e5f0d7273ae4e181fa9468da",
+    "src/features/fusion.py": "6e3841cac1ea08780940a00bb5fb13809738d0f786ced0caa1e109f79e842c4d",
+    "src/data/loader.py": "903c6a13233f883834ebfe1bb24f0d6f47ed14f76f750a89272d068d61793c69",
+    "src/advisor/llm_meta_advisor.py": "94b50dff579390de1f6ed93ab10b969f4d7db873f2bc46277d74f2c9b5d5b66c",
+    "src/advisor/fallback.py": "d10b3e18a56bd07bb4250e88168b9d8b5f26917c121d9fcd98b25a17bc4a1db8",
+    "data/processed/baseline_model.pkl": "fd836d93c310c75bfef24a1f5144fa502bc140411a25308cd5c7f740b31fc739",
+    "data/processed/facial_model.pkl": "7439d1ecdbc3f678a1e4b8afb9df82aef8ed7971a163fa468c73ca8b817e73cf",
+    "data/processed/small_tcn.pt": "57ee60a0b7f440188e90c6e8c0fc1c88917ec3c52f830eb654400eb0c6f7ed3f",
+    "data/processed/tcn_scaler.joblib": "d730f337a67deef90d9cabe6ee02b5a88709768aa8e53d7fc8166402d70b8d16",
+    "web/static/index.html": "b1912f3bf54c900f407bab264ec29aa0a543e08b8736be67fe74406ed9d1e6c5",
+    "web/static/style.css": "5db00d2d040ad057bd7f6ba792232bac284a209d8573854cf70178301cb19064",
+    "web/static/app.js": "d62c916329129aeea845ed9904b1914d76ea9b7bbb97e639149ffdae9612d614"
+  }
+}

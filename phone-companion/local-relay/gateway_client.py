@@ -26,12 +26,12 @@ class RelayClient:
                    "watchSession": snapshot["watchSession"], "capturedAt": captured_at, **fields}
         return self._request("/api/command", {"clientId": self.client_id, "command": command})
 
-    def send_model_result(self, snapshot, risk_score, model_version, status="ready"):
+    def send_model_result(self, snapshot, risk_score, model_version, status="ready", captured_at=None):
         packet = snapshot.get("telemetry")
         if not packet or not snapshot.get("phoneRecent"):
             raise ValueError("No recent watch telemetry; do not infer low risk from missing data")
         # Preserve the input's timestamp/session while an inference runs.
-        return self._command(snapshot, "model_result", packet["sentAt"], riskScore=risk_score,
+        return self._command(snapshot, "model_result", packet["sentAt"] if captured_at is None else captured_at, riskScore=risk_score,
                              status=status, modelVersion=model_version,
                              inputTelemetrySequence=packet["sequence"])
 

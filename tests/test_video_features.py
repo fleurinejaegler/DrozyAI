@@ -1,7 +1,7 @@
 import unittest
 import numpy as np
 import pandas as pd
-from src.features.video_features import FeatureConfig, aggregate_seconds, frame_events, landmark_ratios, summarize_window, FEATURES, extract_68point_window
+from src.features.facial_sequence import FeatureConfig, aggregate_seconds, frame_events, landmark_ratios, summarize_window, FEATURES, extract_68point_window
 
 
 class VideoFeatureTests(unittest.TestCase):

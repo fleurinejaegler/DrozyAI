@@ -23,7 +23,7 @@ window.addEventListener('drowsy:telemetry', event => {
 });
 window.addEventListener('drowsy:state', event => {
   const state = event.detail;
-  byId('connection').textContent = !state.running ? 'Relay paused.' : state.watchSession ? 'Watch linked. Live telemetry enabled.' : 'Select the watch and open DrowsyAlert in live mode.';
+  byId('connection').textContent = !state.running ? 'Relay paused.' : state.watchSession ? 'Watch linked. Live telemetry enabled.' : (state.watchConnectionStatus || 'Select the watch and open DrowsyAlert in live mode.');
 });
 window.addEventListener('drowsy:watch', event => {
   if (event.detail.type === 'user_acknowledged') byId('delivery').textContent = 'START acknowledged on watch; elevated status is retained.';

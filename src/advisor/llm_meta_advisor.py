@@ -12,8 +12,10 @@ fact. The LLM's job is only to write a story that supports that action.
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
+from urllib.parse import urlsplit
 from typing import Any
 
 import requests
@@ -28,44 +30,15 @@ BASE_URL = os.environ.get("LLM_BASE_URL", "http://localhost:11434/v1")
 MODEL = os.environ.get("LLM_MODEL", "llama3.2:3b")
 TIMEOUT = float(os.environ.get("LLM_TIMEOUT", "15"))
 
-SYSTEM_PROMPT = """You are a drowsy-driving safety co-pilot.
-
-You will receive a JSON object with:
-- watch_score: float in [0, 1] from a smartwatch model
-- vision_score: float in [0, 1] from a facial-video model
-- watch_features: raw watch features for this 60-second window
-- vision_features: raw vision features for this 60-second window
-- baseline_comparison: for each feature, the current value, the driver's
-  own baseline mean and std, the difference, the z-score, and the
-  pre-computed direction word ("above", "below", or "at") and magnitude
-  word ("at", "slightly", "moderately", "strongly")
-- recent_risk: list of the last 10 fused risk scores (oldest first)
-- target_action: the final action that has been decided:
-  "continue" | "take a break at the next rest area" | "stop now"
-
-IMPORTANT: Direction and magnitude words are pre-computed. Use them
-EXACTLY as given. Do not compute direction yourself.
-
-Your job:
-1. Decide how much to trust each model. Output weights that sum to 1.
-2. Compute fused_score = watch_weight * watch_score + vision_weight * vision_score.
-3. In your JSON, set "action" to target_action EXACTLY. Do not choose your own action.
-4. Write a 2-3 sentence STORY that:
-   - uses the direction and magnitude words from baseline_comparison,
-   - mentions specific features and timings,
-   - SUPPORTS the target_action. For "continue", write a reassuring story.
-     For "take a break at the next rest area", explain why a break helps.
-     For "stop now", convey urgency.
-
-Respond with JSON ONLY, in this exact shape:
-{
-  "fused_score": <float>,
-  "action": "<must equal target_action>",
-  "reason": "<2-3 sentence story>",
-  "weights": {"watch": <float>, "vision": <float>},
-  "confidence": <float in [0, 1]>
-}
-No text outside the JSON.
+SYSTEM_PROMPT = """Summarize experimental, uncalibrated drowsiness-model signals.
+Input: watch_score, vision_score, measured features, optional descriptive
+baseline_comparison, recent_risk, and target_action chosen by Python.
+Choose watch weight w in [0,1]; vision weight is 1-w. Missing baseline is
+unknown. Use provided directions; invent no measurements or certainty.
+Return ONLY this JSON array: [0.5,0.5,"factual reason, maximum 4 words"].
+Values are [watch weight, self-reported confidence, reason]. Confidence is
+not detection accuracy. Python computes the
+weighted score and action. Do not output calculations or additional keys.
 """
 
 
@@ -124,11 +97,7 @@ def _baseline_compare(
 # Action helper
 # ----------------------------------------------------------------------
 def _action_from_score(score: float) -> str:
-    if score < 0.40:
-        return "continue"
-    if score >= 0.70:
-        return "stop now"
-    return "take a break at the next rest area"
+    return rule_based_advisor(score)['action']
 
 
 # ----------------------------------------------------------------------
@@ -144,23 +113,30 @@ def _prepare_user_payload(
     target_action: str = "",
 ) -> dict[str, Any]:
     keys_watch = ["hr_mean", "rmssd", "temp_trend", "motion_var"]
-    keys_vision = [
-        "perclos", "blink_rate_per_min", "longest_closure_sec",
-        "left_ear_mean", "right_ear_mean", "yawn_count",
-    ]
+    # Keep real feature names from the supplied extractor. Absent values stay
+    # absent; they must never become fabricated zeros in an LLM prompt.
+    keys_vision = list(vision_features)
 
     def pick(feats, keys):
-        return {k: round(float(feats.get(k, 0.0)), 4) for k in keys}
+        return {k: round(float(feats[k]), 4) for k in keys if k in feats}
 
+    comparisons = {
+        "watch": _baseline_compare(watch_features, baseline, "w", keys_watch),
+        "vision": _baseline_compare(vision_features, baseline, "v", keys_vision),
+    }
+    # Keep the most informative baseline comparisons to bound local latency;
+    # all current raw features are still supplied. Empty baseline stays empty.
+    ranked = sorted(((abs(v["z_score"]), source, key) for source, entries in comparisons.items()
+                     for key, v in entries.items()), reverse=True)[:6]
+    selected = {(source, key) for _, source, key in ranked}
+    comparisons = {source: {k:v for k,v in entries.items() if (source,k) in selected}
+                   for source, entries in comparisons.items()}
     return {
         "watch_score": round(float(watch_score), 3),
         "vision_score": round(float(vision_score), 3),
         "watch_features": pick(watch_features, keys_watch),
         "vision_features": pick(vision_features, keys_vision),
-        "baseline_comparison": {
-            "watch": _baseline_compare(watch_features, baseline, "w", keys_watch),
-            "vision": _baseline_compare(vision_features, baseline, "v", keys_vision),
-        },
+        "baseline_comparison": comparisons,
         "recent_risk": [round(float(x), 3) for x in recent_risk[-10:]],
         "target_action": target_action,
     }
@@ -202,8 +178,12 @@ def _call_llm(payload: dict[str, Any]) -> dict[str, Any]:
                 {"role": "user", "content": json.dumps(payload)},
             ],
             "temperature": 0.3,
-            "max_tokens": 150,
-            "response_format": {"type": "json_object"},
+            "max_tokens": 64,
+            **({"reasoning_effort": os.getenv("LLM_REASONING_EFFORT", "none")}
+               if urlsplit(BASE_URL).hostname in {"localhost", "127.0.0.1"} and urlsplit(BASE_URL).port == 11434 else {}),
+            "response_format": {"type":"json_schema","json_schema":{"name":"advisor","schema":{
+                "type":"array","prefixItems":[{"type":"number","minimum":0,"maximum":1},
+                {"type":"number","minimum":0,"maximum":1},{"type":"string"}],"minItems":3,"maxItems":3}}},
         },
         timeout=TIMEOUT,
     )
@@ -211,8 +191,19 @@ def _call_llm(payload: dict[str, Any]) -> dict[str, Any]:
     content = response.json()["choices"][0]["message"]["content"].strip()
 
     result = _extract_json(content)
-    if result is None:
-        raise ValueError(f"Could not parse JSON from LLM output: {content[:200]}")
+    if isinstance(result,list) and len(result)==3:
+        result={"w":result[0],"c":result[1],"r":result[2]}
+    if not isinstance(result, dict):
+        raise ValueError("Local advisor did not return the required JSON schema")
+    if "w" in result:
+        weight=result["w"]
+        if isinstance(weight,bool) or not isinstance(weight,(int,float)) or not math.isfinite(weight) or not 0<=weight<=1:
+            raise ValueError("Invalid advisor weight")
+        fused=weight*payload["watch_score"]+(1-weight)*payload["vision_score"]
+        return {"fused_score":fused,"action":_action_from_score(fused),
+                "reason":result.get("r"),"weights":{"watch":weight,"vision":1-weight},
+                "confidence":result.get("c")}
+    # Keep compatibility with a server returning the original full schema.
     return result
 
 

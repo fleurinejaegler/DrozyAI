@@ -1,147 +1,72 @@
-# Local web API
+# Connected local web API
 
-Run `python web/app.py` from the repository root, then open
-<http://127.0.0.1:8777>. Use `--port 5000` if that port is available. This new
-package uses 8777 so the existing dashboard at 8776 can stay running.
+Start from the repository root with `python run_demo.py`. Default dashboard: http://127.0.0.1:8777/. The launcher also starts the existing authenticated phone relay, default port 8765. See [CONNECTION_GUIDE.md](../CONNECTION_GUIDE.md).
 
-All POST bodies are JSON objects with `Content-Type: application/json`.
-Invalid values return `{ "error": "..." }` with status 400; unsupported media
-types return 415 and requests above 512 KB return 413. No cross-origin access
-is enabled. Bluetooth actions additionally require the local page's Origin.
-Normal inference requests from local command-line clients do not require Origin.
+All POST bodies are JSON objects with `Content-Type: application/json`. Invalid input returns 400, unsupported media types 415, and bodies above 512 KB 413. The web server accepts loopback Host names and rejects cross-origin actions. Bluetooth actions and pairing details require the local page's Origin. The pairing token is never included in health/state output.
 
 | Method | Endpoint | Purpose |
 |---|---|---|
-| GET | `/` | Live dashboard and recorded-feature model test |
-| GET | `/api/health` | Startup-loaded models and unfinished live integrations |
-| GET | `/api/models` | Exact feature names, channel order and sequence shape |
-| POST | `/api/score` | Teammate watch model, from five measured features |
-| POST | `/api/facial` | Small TCN or logistic regression, from matching video features |
-| POST | `/api/fusion` | Explicit experimental fusion, including missing-source modes |
-| GET | `/api/state` | Current Bluetooth HR status and up to five minutes of readings |
-| POST | `/api/scan` | Scan for Bluetooth HR broadcasters; body `{}` |
-| POST | `/api/connect` | Connect a device from the last scan; body `{"id":"scan-result-id"}` |
-| POST | `/api/disconnect` | Disconnect HR; body `{}` |
+| GET | `/api/health`, `/health` | Loaded models, live adapter/transport configuration |
+| GET | `/api/models` | Exact feature/channel names and dimensions |
+| POST | `/api/score` | Watch artifact inference from four measured features |
+| POST | `/api/facial` | Video TCN or logistic artifact inference |
+| POST | `/api/fusion` | Server computes both component scores from features |
+| POST | `/api/live/watch`, `/api/live/video` | Timestamped, same-session measured model inputs |
+| POST | `/api/live/watch/stop`, `/api/live/video/stop` | Invalidate that modality and discard pending advice |
+| GET | `/api/live/state` | Fresh scores, fusion, advice and phone-delivery state |
+| POST | `/api/baseline` | Explicit numeric driver baseline |
+| POST | `/garmin/data` | Existing relay snapshot intake; launcher already polls it |
+| POST | `/api/watch/send` | Queue latest eligible result; receipt still required |
+| POST | `/api/setup` | Explicit same-origin pairing details; keep token private |
+| GET | `/api/state` | Optional direct Bluetooth HR status/history |
+| POST | `/api/scan`, `/api/connect`, `/api/disconnect` | Existing direct Bluetooth HR controls |
 
-## Watch score
+## Four-feature watch model
 
-The teammate-owned `load_model` is called once at app startup with an absolute
-path. `predict_score(features, model=model)` is treated as a black box. No
-watch-model training, imputation or modifications are performed.
-
-```sh
-curl -X POST http://127.0.0.1:8777/api/score \
-  -H 'Content-Type: application/json' \
-  -d '{"hr_mean":75.3,"rmssd":0.052,"temp_trend":-0.0001,"eda_peaks":3,"motion_var":8.2}'
-```
-
-Response: `{"score":0.0, "model":"teammate_watch_baseline",
-"source":"provided_features", "live_garmin_adapter_ready":false}`, where
-`score` is the actual saved model's output in [0, 1], not the illustrative 0.0.
-A `{"features":{...}}` envelope is also accepted.
-
-| Feature | Training definition / unit |
-|---|---|
-| `hr_mean` | Mean HR over a 60-second window, BPM |
-| `rmssd` | Existing teammate pipeline's successive IBI differences, seconds |
-| `temp_trend` | Existing pipeline's skin-temperature slope, degrees C per sample |
-| `eda_peaks` | Existing pipeline's EDA local-peak count over the window |
-| `motion_var` | Mean of the three existing acceleration-variance columns, dataset units squared |
-
-Use `src/features/watch_features.py` as the authoritative definitions. Garmin
-Bluetooth HR does **not** provide all five fields in this app. HRV, EDA,
-temperature and acceleration must not be inferred from BPM or filled with
-sample values. Missing features return an error. Empatica-to-Garmin transfer
-and the watch score's calibration have not been established by this integration.
-
-## Facial score
-
-The default is the existing **small TCN**, rather than the logistic-only
-template. Send one 15-channel × 60-second array, **channels first**. Seconds
-are ordered from oldest to newest. Channel names must exactly match the list
-returned by `/api/models`.
+`POST /api/score` accepts this object or a `features` envelope:
 
 ```json
-{"model":"small_tcn","channels":["left_eye_openness","... exact remaining names ..."],
- "sequence":[["60 numeric seconds per channel"]]}
+{"hr_mean":75.3,"rmssd":0.052,"temp_trend":-0.0001,"motion_var":8.2}
 ```
 
-This abbreviated schema is explanatory, not a valid request. To generate a
-valid **synthetic** contract smoke test (not a person or a detection result):
+These are illustrative inputs for contract testing, not a live driver's measurements. HR is BPM; RMSSD is seconds from successive *per-second IBI means*, not the watch's beat-level RMSSD; temperature trend follows the original compacted-sample slope; motion variance is the mean per-second variance across E4-count acceleration axes. The authoritative extractor is `src/features/watch_features.py`. The saved pipeline has exactly four inputs and does not require EDA.
 
-```sh
-python - <<'PY'
-import json
-from urllib.request import urlopen, Request
-base = 'http://127.0.0.1:8777'
-channels = json.load(urlopen(base + '/api/models'))['facial']['channels']
-sequence = [[0.0] * 60 for _ in channels]
-for index in (0, 1, 14):
-    sequence[index] = [1.0] * 60
-body = {'model':'small_tcn', 'channels':channels, 'sequence':sequence}
-request = Request(base + '/api/facial', data=json.dumps(body).encode(),
-                  headers={'Content-Type':'application/json'})
-print(json.load(urlopen(request)))
-PY
-```
+Response fields include `score` in [0,1], `drowsiness_score` (score ×100), model/version, features, `score_type:uncalibrated_score`, and `source:provided_features`. The Garmin adapter is ready but device transfer is unvalidated. Offline inference never sends a watch command. Missing/nonfinite features are rejected.
 
-Response fields: `score` in [0, 1], `model`, `score_type:"uncalibrated_score"`,
-`source:"provided_features"`, `live_camera_adapter_ready:false`.
+## Video model
 
-The original training scaler is applied per second, in channel order, after
-matching float32 input rounding. Coverage needs >=90% across the window and
->=50% in each second. Fractions, nonnegative geometry values, finite numbers,
-channel order and dimensions are checked. Correct semantics and capture
-timing remain the caller's responsibility; passing validation does not prove
-that arbitrary numbers came from the required extraction pipeline.
-
-The alternative `{"model":"logistic_regression","features":{...}}` needs all
-22 feature names from `/api/models` and >=90% valid-frame coverage. Its saved
-artifact is `facial_model.pkl`; the TCN uses `small_tcn.pt` **and**
-`tcn_scaler.joblib`. Do not rename the TCN checkpoint to `.pkl` or omit scaling.
-
-`src/features/video_features.py` preserves the training event definitions and
-provides `extract_68point_window(frames)`. It expects a 60 FPS time grid of
-68-point image-plane landmarks, with at least 15 seconds of initial
-calibration plus 60 seconds of history. Missing frames occupy their original
-slots as NaNs. Mouth events are candidate mouth openings, not verified yawns.
-Eye closure is an EAR proxy, not validated pupil-based PERCLOS.
-
-The live dashboard currently uses MediaPipe expression coefficients and a
-sparse set of landmarks at a different sampling rate. Those are **incompatible**
-with the saved TCN contract. No automatic live-camera TCN call is made until a
-matching geometry/time adapter and webcam validation are provided. The UI's
-file test only calls `/api/facial` on an explicitly selected local feature file.
-
-## Fusion
-
-Compute component scores on the server:
+The default `small_tcn` needs a channels-first 15 ×60 numeric sequence, oldest second first. Exact channel order comes from `/api/models`. `logistic_regression` takes all 22 named summary features in a `features` dictionary. The TCN uses `small_tcn.pt` and its original `tcn_scaler.joblib`; logistic uses `facial_model.pkl`.
 
 ```json
-{"watch_features":{"hr_mean":75.3,"rmssd":0.052,"temp_trend":-0.0001,
-                   "eda_peaks":3,"motion_var":8.2},
- "facial":{"model":"small_tcn","channels":["..."],"sequence":[["..."]]},
- "strategy":"max"}
+{"model":"small_tcn","channels":["exact names from /api/models"],"sequence":[["60 numeric values per channel"]]}
 ```
 
-Alternatively test fusion with **provided example scores**:
+This abbreviated example is explanatory, not a runnable request. Coverage must be at least 90% overall and 50% in every second. Fractions, finite values, nonnegative event/geometry values, order and dimensions are validated. `src/features/facial_sequence.py` preserves the recovered original training definitions and a 68-point extractor. Live `web/static/model-features.mjs` uses observed-time MediaPipe geometry as an experimental RGB transfer. Arbitrary expression coefficients are not accepted as a substitute for training channels.
 
-```sh
-curl -X POST http://127.0.0.1:8777/api/fusion \
-  -H 'Content-Type: application/json' \
-  -d '{"watch_score":0.2,"facial_score":0.8,"strategy":"max"}'
+## Offline fusion
+
+`POST /api/fusion` takes `watch_features` and/or `facial` as above, with optional `strategy` (`mean`, `weighted`, `max`, `product`) and `watch_weight` in [0,1]. Both component scores are computed by the server. Client-supplied `watch_score` or `facial_score` are rejected. At least one source is required.
+
+The response includes `score`, `drowsiness_score`, `watch_score`, `facial_score`, `mode` (`watch_only`, `video_only`, `watch_video`), components and deterministic advice. `transport_eligible:false` and `watch_alert_sent:false` distinguish feature-file tests from live watch return.
+
+## Live windows
+
+Both live endpoints also require:
+
+```json
+{"device_id":"demo","session_id":"actual-watch-session","data_origin":"live",
+ "window":{"start_ms":1790000040000,"end_ms":1790000100000},
+ "schema_id":"watch.garmin.transfer.v1","features":{"hr_mean":75.3,"rmssd":0.052,"temp_trend":0,"motion_var":8.2}}
 ```
 
-The result includes `fused_score:0.8`, `alert:true`, `traffic_light:"red"`,
-`mode:"combined"`, both component scores, strategy and `validated:false`.
-`input_source` distinguishes model-feature inference from provided scores.
-Do not mix those two input forms in one request.
+Use actual current Mac/watch UTC times, exactly 60,000 ms apart. Five-second UTC boundaries are used by built-in adapters. End time must be current or at most ten seconds old, never future. Use the same device/session/origin for both modalities; synthetic test streams use `data_origin:synthetic_test` and never enter the live return path. Watch schema IDs: `watch.uldd.four.v1` and experimental `watch.garmin.transfer.v1`; video IDs: `facial.uldd.tcn15.v1` and experimental `facial.rgb.geometry.v1`. Video live body also contains its model, channels/sequence and preferably all 22 summaries for advisor context.
 
-Use null/omitted values for an unavailable source. Single-source results
-identify `watch_only` or `facial_only`. With neither source, `fused_score` is
-null, `traffic_light` and `mode` are `unavailable`, and `alert` is false. False
-in this unavailable state is **not** evidence of alertness.
+`GET /api/live/state?device_id=demo&session_id=...&data_origin=live` gives current state. Omit identity to use the connected relay's watch session. Fresh ends must be within two seconds to combine; otherwise the watch score is used and `reason:VIDEO_WINDOW_NOT_ALIGNED` explains it. No fresh model yields `status:collecting` and null score. Every result includes remaining `valid_for_ms`; clients must stop displaying an expired score.
 
-`watch_alert_sent` is always false: a model API response does not send a
-notification or vibration to a Garmin app. Alert transport is unfinished.
-See [fusion_strategy.md](fusion_strategy.md) for boundaries and limitations.
+The local advisor runs asynchronously only when both real model components are present. Python validates/recomputes weights; immediate deterministic advice is always available. Temperature quality contains the last real Celsius value, original age and carry flag. Null packets do not renew the temperature timestamp; new watch sessions reset it. Missing genuine IBI blocks watch inference.
+
+`POST /api/baseline` uses stream identity plus a numeric `baseline` dictionary. Baseline standard deviations cannot be negative. Automatic descriptive baseline rows do not assert alertness.
+
+The relay worker sends fresh watch/fused results through the original `RelayClient`, preserving capture time and input sequence. Independent video alarms can operate with missing watch-model features when watch telemetry/session transport exists. `queued_delivery_unconfirmed` means only transport acceptance; a later watch `command_result` supplies final status. No HTTP response proves physical alarm playback.
+
+Preparation mode (`web/app.py --prepare-only`) intentionally does not load models and retains the separate [preparation contracts](../realtime_backend/README.md).

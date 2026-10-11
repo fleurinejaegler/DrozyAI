@@ -1,7 +1,20 @@
 import { VisualMetrics, heartSummary } from './metrics.mjs';
+import { LiveModelFeatures } from './model-features.mjs';
+import { ScoreDisplay } from './score-display.mjs';
+import { advisorView } from './advisor-view.mjs';
+import { ModelScoreDisplay, watchReadings } from './dashboard-readings.mjs';
 
 const $ = id => document.getElementById(id);
 const metrics = new VisualMetrics();
+const modelFeatures = new LiveModelFeatures();
+const scoreDisplay = new ScoreDisplay();
+const modelScoreDisplay = new ModelScoreDisplay();
+let relayInfo = null, relayReceived = 0;
+const browserSession = 'browser-'+crypto.randomUUID();
+let modelIdentity = { device_id:'demo', session_id:browserSession, data_origin:'live' };
+let relaySamples = [];
+let modelState = null, modelReceived = 0, modelSending = false, modelMessage = 'Waiting for sensor windows';
+let backendHealth = {};
 let stream = null, worker = null, ready = false, busy = false, generation = 0;
 let lastFrame = -1, lastCapture = 0, starting = false, trackAvailable = false;
 let sessionStarted = null, heart = { status: 'disconnected', samples: [] };
@@ -27,6 +40,8 @@ async function enumerateCameras() {
 
 function stopCamera(message = 'Camera stopped. Readings are unavailable until you restart.') {
   generation++;
+  request('/api/live/video/stop',modelIdentity).catch(()=>{});
+  modelFeatures.reset(); modelState=null;
   stream?.getTracks().forEach(track => track.stop());
   stream = null;
   worker?.terminate(); worker = null; ready = false; busy = false; trackAvailable = false;
@@ -34,6 +49,7 @@ function stopCamera(message = 'Camera stopped. Readings are unavailable until yo
   overlayContext.clearRect(0, 0, overlay.width, overlay.height);
   $('camera-button').innerHTML = 'Start camera <span>↗</span>';
   $('camera-select').disabled = false;
+  $('recalibrate-button').disabled = true;
   $('camera-message').textContent = message;
   $('tracking-label').textContent = 'Camera inactive'; $('fps').textContent = '— fps';
   cameraStatus('Off'); metrics.reset(); frameTimes = []; lastFrame = -1;
@@ -75,16 +91,20 @@ async function startCamera() {
     worker.onmessage = ({ data }) => {
       if (localGeneration !== generation) return;
       if (data.type === 'ready') {
-        ready = true; cameraStatus('Live', true); $('camera-message').textContent = 'Local camera analysis active. Keep your face and eyes visible.';
+        ready = true; cameraStatus('Live', true);
+        $('recalibrate-button').disabled = false;
+        $('camera-message').textContent = 'First 15 seconds: look ahead normally. Later scores use sustained changes from this baseline; ordinary blinks are tolerated.';
         if (sessionStarted === null) sessionStarted = Date.now();
         requestAnimationFrame(loop);
       } else if (data.type === 'result') {
         busy = false;
         // Reject old results; a slow or interrupted pipeline is not current evidence.
         if (performance.now() - data.t > 500 || !trackAvailable || document.hidden) {
-          metrics.push(performance.now(), null); return;
+          metrics.push(performance.now(), null); modelFeatures.push(performance.timeOrigin+performance.now(),null); return;
         }
         metrics.push(data.t, data.closure);
+        modelFeatures.push(performance.timeOrigin+data.t, data.ratios);
+        sendVideoWindow(performance.now(), localGeneration);
         processingMs = data.ms;
         frameTimes.push(performance.now());
         frameTimes = frameTimes.filter(t => performance.now() - t <= 2000);
@@ -112,7 +132,7 @@ async function loop(now) {
   requestAnimationFrame(loop);
   const video = $('video');
   if (document.hidden || !trackAvailable || video.readyState < 2) {
-    metrics.push(now, null); return;
+    metrics.push(now, null); modelFeatures.push(performance.timeOrigin+now,null); return;
   }
   // Bound inference to 15 fps. The worker prevents inference from blocking the UI.
   if (busy || now - lastCapture < 66 || lastFrame === video.currentTime) return;
@@ -181,11 +201,32 @@ async function pollWatch() {
 function update() {
   const now = performance.now();
   const s = metrics.snapshot(now);
-  $('level').textContent = s.level;
-  $('level-panel').dataset.level = s.level;
-  $('level-subtitle').textContent = ['High','Elevated','Low'].includes(s.level) ? 'VISUAL CUES' : s.level === 'Collecting' ? 'OBSERVING YOUR EYES' : 'FOR CAMERA DATA';
-  $('level-reason').textContent = s.reason;
-  const fill = { Waiting: 0, Unavailable: 0, Collecting: 12, Low: 25, Elevated: 60, High: 95 }[s.level];
+  const inputFresh = now-modelReceived<modelState?.valid_for_ms;
+  const modelFresh = modelState?.status==='ok' && inputFresh;
+  const displayed = scoreDisplay.snapshot(modelState, modelFresh, Date.now());
+  const level = modelFresh ? (modelState.score>=0.90?'High':modelState.score>=0.70?'Elevated':'Low') : stream?'Collecting':'Waiting';
+  $('level').textContent = displayed.state ? displayed.state.drowsiness_score.toFixed(1) : level;
+  $('level-panel').dataset.level = level;
+  $('level-subtitle').textContent = modelFresh ? 'MODEL SCORE / 100' : displayed.state ? `LAST SCORE / 100 · ${displayed.ageSeconds}s old` : 'COLLECTING MODEL INPUTS';
+  $('level-reason').textContent = modelFresh ? modelState.advice.action+' · '+modelState.advice.reason : modelMessage;
+  $('level-source-text').textContent = modelFresh ? (modelState.mode==='watch_video' ? 'Watch + video · 50/50 average' : modelState.mode==='watch_only'?'Watch model only':'Video model only') : displayed.state ? 'Last prediction · waiting for fresh inputs' : 'Models connected · waiting for data';
+  $('component-scores').textContent = modelFresh ? `Watch ${modelState.watch_score===null?'—':(modelState.watch_score*100).toFixed(1)} · Video ${modelState.facial_score===null?'—':(modelState.facial_score*100).toFixed(1)} · ${modelState.advice.source}` : 'Watch — · Video —';
+  const scores = modelScoreDisplay.snapshot(modelState, inputFresh, Date.now());
+  for (const name of ['watch','video']) {
+    $('score-'+name).textContent = scores[name].value;
+    $('score-'+name+'-note').textContent = scores[name].note;
+  }
+  const readings = watchReadings(relayInfo, performance.now()-relayReceived);
+  $('blood-oxygen').textContent = readings.oxygen.value;
+  $('oxygen-note').textContent = readings.oxygen.note;
+  $('watch-temperature').textContent = readings.temperature.value;
+  $('temperature-card-note').textContent = readings.temperature.note;
+  const advisor = advisorView(modelState, modelFresh, backendHealth);
+  $('advisor-status').textContent = advisor.label;
+  $('advisor-status').classList.toggle('live', modelFresh && modelState?.advice?.source === 'llm');
+  $('advisor-explanation').textContent = advisor.text;
+  $('advisor-detail').textContent = advisor.detail;
+  const fill = displayed.state ? displayed.state.drowsiness_score : 0;
   $('gauge-fill').style.strokeDasharray = `${fill} 100`;
   $('eye-fraction').textContent = s.fresh && s.observed >= 15000 ? (s.fraction * 100).toFixed(1) : '—';
   $('blink-count').textContent = s.fresh && s.observed >= 15000 ? s.blinkCount : '—';
@@ -194,6 +235,8 @@ function update() {
   $('coverage-fill').style.width = `${s.coverage * 100}%`;
   if (stream && ready) $('fps').textContent = `${(frameTimes.filter(t => now - t <= 2000).length / 2).toFixed(0)} fps`;
   if (stream && ready && !s.fresh) { $('tracking-label').textContent = 'No current eye observations'; overlayContext.clearRect(0,0,overlay.width,overlay.height); }
+  const relayBpm=modelState?.relay?.heart_rate_bpm;
+  if(Number.isFinite(relayBpm))heart={...heart,status:'connected',bpm:relayBpm,name:'Garmin app via phone',message:modelState.relay.note,samples:relaySamples};
   const heartFresh = heart.status === 'connected' && heart.bpm !== null;
   $('heart-rate').textContent = heartFresh ? heart.bpm : '—';
   $('heart-note').textContent = heartFresh ? 'Live · Garmin Bluetooth' : heart.status === 'stale' ? 'Signal stale · waiting for watch' : 'Watch not connected';
@@ -201,7 +244,7 @@ function update() {
   $('watch-state').textContent = ({ disconnected: 'Not connected', scanning: 'Scanning nearby', connecting: 'Connecting…', connected: heartFresh ? 'Heart rate streaming' : 'Waiting for heart rate', stale: 'Connected · signal stale', unavailable: 'Unavailable' })[heart.status] || 'Unavailable';
   $('watch-dot').style.background = heartFresh ? '#359779' : heart.status === 'stale' ? '#b9782d' : '#c9d1c5';
   if (!$('watch-devices').childElementCount && heart.message) $('watch-message').textContent = heart.message;
-  $('disconnect-button').hidden = !['connected','connecting','stale'].includes(heart.status);
+  $('disconnect-button').hidden = Number.isFinite(relayBpm) || !['connected','connecting','stale'].includes(heart.status);
   $('scan-button').hidden = ['connected','connecting','stale'].includes(heart.status);
   const summary = heartSummary(heart.samples || [], Date.now() / 1000);
   $('heart-delta').textContent = heartFresh && summary.delta !== null ? `${summary.delta >= 0 ? '+' : ''}${summary.delta.toFixed(1)} bpm vs baseline` : 'Baseline pending';
@@ -213,7 +256,7 @@ function update() {
     $('session-dot').style.background = active ? '#359779' : '#b9782d';
     if (now - lastLog >= 1000) {
       lastLog = now;
-      sessionLog.push({ time: new Date().toISOString(), level: s.level, basis: 'unvalidated camera rules',
+      sessionLog.push({ time: new Date().toISOString(), level: s.level, basis: modelFresh ? 'connected models; uncalibrated transfer' : 'collecting', modelScore: modelFresh ? modelState.score : null, mode: modelFresh ? modelState.mode : null,
         eyeClosureFraction: s.fresh && s.observed >= 15000 ? s.fraction : null,
         observedSeconds: s.observed / 1000, visibleCoverage: s.coverage, blinkEvents: s.fresh ? s.blinkCount : null,
         currentClosureSeconds: s.fresh ? s.currentClosure : null, heartRateBpm: heartFresh ? heart.bpm : null,
@@ -261,10 +304,10 @@ function drawHeartChart() {
 
 $('export-button').addEventListener('click', () => {
   const payload = { app: 'Drowsy live prototype', exported: new Date().toISOString(), camera: cameraSelection,
-    classification: 'observed metrics; drowsiness level is an unvalidated visual rule',
+    classification: 'uncalibrated model scores; Garmin and RGB transfer experimental',
     model: 'MediaPipe Face Landmarker float16 v1; tasks-vision 0.10.21',
     thresholds: { closureScore: 0.55, elevatedSeconds: 0.8, highSeconds: 1.5, elevatedFraction: 0.12, highFraction: 0.25 },
-    physiologicalFeaturesInLevel: false, samples: sessionLog };
+    physiologicalFeaturesInLevel: modelState?.mode==='watch_video'||modelState?.mode==='watch_only', samples: sessionLog };
   const url = URL.createObjectURL(new Blob([JSON.stringify(payload,null,2)], { type:'application/json' }));
   const link = document.createElement('a'); link.href = url; link.download = `drowsy-session-${new Date().toISOString().replaceAll(':','-')}.json`;
   link.click(); setTimeout(()=>URL.revokeObjectURL(url),1000);
@@ -275,17 +318,28 @@ document.addEventListener('visibilitychange', () => {
 window.addEventListener('pagehide', () => stopCamera());
 navigator.mediaDevices?.addEventListener('devicechange', () => enumerateCameras().catch(()=>{}));
 enumerateCameras().catch(()=>{});
-pollWatch(); update(); setInterval(update,250);
+pollWatch(); pollModels(); update(); setInterval(update,250);
 
 // Keep model-file inference visibly separate from the live visual rule.
 fetch('/api/health').then(response => {
   if (!response.ok) throw new Error('Models unavailable');
   return response.json();
 }).then(state => {
+  backendHealth = state;
+  $('compute-location').textContent = state.compute_host === 'GX10' ? 'Processing on GX10' : 'Local processing';
   $('model-availability').textContent = state.models_loaded.includes('small_tcn') ? 'Small TCN loaded' : 'Unavailable';
 }).catch(() => { $('model-availability').textContent = 'Unavailable'; });
 
 let featureTestGeneration = 0;
+$('advisor-sample-button').addEventListener('click', async () => {
+  const button = $('advisor-sample-button'), output = $('advisor-sample-result');
+  button.disabled = true; output.hidden = false; output.textContent = 'Generating a sample explanation…';
+  try {
+    const sample = await request('/api/advisor/sample');
+    output.textContent = `Sample inputs · ${sample.advice.source === 'llm' ? 'Local AI' : 'Automatic advice'}: ${sample.advice.reason}`;
+  } catch (error) { output.textContent = error.message || 'Sample explanation unavailable.'; }
+  finally { button.disabled = false; }
+});
 $('feature-file').addEventListener('change', async event => {
   const current = ++featureTestGeneration;
   $('model-test-score').textContent = '—';
@@ -296,11 +350,84 @@ $('feature-file').addEventListener('change', async event => {
     const body = JSON.parse(await file.text());
     if (current !== featureTestGeneration) return;
     $('model-test-message').textContent = 'Running the model on your selected features…';
-    const result = await request('/api/facial', body);
+    const endpoint = body.watch_features || body.facial ? '/api/fusion' : body.hr_mean!==undefined || body.features?.hr_mean!==undefined ? '/api/score' : '/api/facial';
+    const result = await request(endpoint, body);
     if (current !== featureTestGeneration) return;
     $('model-test-score').textContent = (result.score * 100).toFixed(1);
-    $('model-test-message').textContent = `${result.model === 'small_tcn' ? 'Small TCN' : 'Logistic regression'} · selected file · live indicator unchanged`;
+    $('model-test-message').textContent = `${result.model || result.mode} · selected file · ${result.advice?.reason || 'live indicator unchanged'}`;
   } catch (error) {
     if (current === featureTestGeneration) $('model-test-message').textContent = error.message || 'Feature inference failed.';
   }
+});
+
+
+async function sendVideoWindow(now, activeGeneration) {
+  if(modelSending)return;
+  const window = modelFeatures.window(performance.timeOrigin+now);
+  if(!window)return;
+  if(window.status) { modelMessage=window.status; return; }
+  modelSending=true;
+  const identity={...modelIdentity};
+  try {
+    const result=await request('/api/live/video',{...identity,model:'small_tcn',schema_id:'facial.rgb.geometry.v1',
+      sequence:window.sequence,channels:window.channels,features:window.features,
+      baseline_reference:window.baselineReference,
+      quality:{transfer:'experimental_rgb_mesh',geometry_reference_seconds:15,
+               trends_available:window.trendsAvailable},
+      window:{start_ms:Math.round(window.startRelativeMs),end_ms:Math.round(window.endRelativeMs)}});
+    if(activeGeneration===generation && identity.session_id===modelIdentity.session_id) {
+      modelState=result; modelReceived=performance.now(); modelMessage='Waiting for next model window';
+    }
+  } catch(error) { modelMessage=error.message; }
+  finally { modelSending=false; }
+}
+
+$('recalibrate-button').addEventListener('click',async()=>{
+  if(starting)return;
+  stopCamera('Resetting the neutral camera baseline…');
+  modelScoreDisplay.clear('video');
+  await startCamera();
+});
+
+async function pollModels() {
+  try {
+    const response=await fetch('/api/live/state?'+new URLSearchParams(modelIdentity));
+    if(!response.ok)throw new Error('Connected models unavailable');
+    const result=await response.json();
+    relayInfo=result.relay; relayReceived=performance.now();
+    const desired=result.relay.watch_session||browserSession;
+    if(desired!==modelIdentity.session_id) {
+      request('/api/live/video/stop',modelIdentity).catch(()=>{});
+      modelIdentity={device_id:result.relay.client_id,session_id:desired,data_origin:'live'};
+      modelFeatures.reset(); modelState=null; relaySamples=[];
+      // Keep labelled display history through reconnects; model sessions reset above.
+    } else { modelState=result; modelReceived=performance.now(); }
+    const quality=result.relay.quality||{};
+    if(result.reason==='PARTIAL_VIDEO_PROVISIONAL')modelMessage='Partial video output is provisional; collecting data for the trained 60-second model.';
+    $('motion-note').textContent=quality.motion_carried_seconds ? `Motion: last variance carried over ${quality.motion_carried_seconds}/60s (max gap 5s). HR held over ${quality.hr_carried_seconds||0}/60s (max gap 3s).` : 'Motion: using measured samples';
+    const temp=quality.temperature_c;
+    $('temperature-note').textContent=temp===undefined||temp===null?'Temperature: waiting for first reading':
+      `Temperature ${temp.toFixed(1)} °C · last real reading ${quality.temperature_age_ms===null?'age unknown':Math.round(quality.temperature_age_ms/1000)+' s ago'}${quality.temperature_carried?' · carried':''}`;
+    if(quality.missing?.length && !stream)modelMessage='Waiting for '+quality.missing.join(', ');
+    if(result.relay.heart_rate_bpm!==null && result.relay.heart_rate_bpm!==undefined) {
+      const time=result.relay.heart_rate_time_s;
+      if(Number.isFinite(time) && (!relaySamples.length || relaySamples.at(-1).time!==time))
+        relaySamples.push({time,bpm:result.relay.heart_rate_bpm});
+      relaySamples=relaySamples.filter(sample=>Date.now()/1000-sample.time<=300).slice(-300);
+      heart={...heart,status:'connected',bpm:result.relay.heart_rate_bpm,name:'Garmin app via phone',message:result.relay.note,samples:relaySamples};
+    }
+    $('relay-status').textContent=result.relay.status.replaceAll('_',' ')+(result.relay.delivery?' · '+result.relay.delivery.state.replaceAll('_',' '):'');
+  } catch(error) { modelState=null; modelMessage=error.message; }
+  setTimeout(pollModels,1000);
+}
+
+
+$('pairing-button').addEventListener('click',async()=>{
+  const area=$('pairing-details');
+  if(!area.hidden) { area.hidden=true;area.textContent='';return; }
+  try {
+    const setup=await request('/api/setup');
+    area.textContent=`Phone URL: ${setup.phone_urls.join(' or ')||`use your Mac Wi-Fi IP with port ${setup.relay_port}`} | Client: ${setup.client_id} | Pairing token: ${setup.pairing_token}`;
+    area.hidden=false;
+  } catch(error) { area.textContent=error.message;area.hidden=false; }
 });

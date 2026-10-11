@@ -82,3 +82,22 @@ web/session-exports/
 /phone-companion/build/
 xcuserdata/
 *.xcuserstate
+
+# Isolated connected-demo environment
+.venv-demo/
+
+# Live sensor sessions, credentials, local machine configuration
+realtime_backend/data/
+realtime_backend/installation.json
+realtime_backend/verification.json
+deployment/runtime*
+deployment/*backup*/
+deployment/*release*/
+*.der
+.keys/
+*.p12
+*.mobileprovision
+*.jks
+*.keystore
+.venv-gx10/
+node_modules/

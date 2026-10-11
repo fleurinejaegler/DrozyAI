@@ -11,6 +11,7 @@ class DrowsyAlertApp extends Application.AppBase {
     var externalModel = false; var testData as TestDataReplay? = null; var demo = null; var result as Dictionary;
     var lastFeatureTick = 0; var lastEvaluation = 0; var foreground = true;
     var displayWakeBlocked = false;
+    var lastValidRisk = null; var lastValidRiskAt = null;
     function initialize() {
         AppBase.initialize();
         sensors = new SensorCollector(); features = new FeatureCollector();
@@ -28,7 +29,7 @@ class DrowsyAlertApp extends Application.AppBase {
         if (testData != null) { testData.applyVitals(sensors, now); }
         if (testData == null && now - lastFeatureTick >= 1000) { features.add(sensors, now); lastFeatureTick = now; }
         if (now - lastEvaluation >= Config.EVALUATION_MS) { evaluateNow(now); }
-        if ((demo == null && !sensors.coreFresh(now)) || now - result[:timestamp] > Config.RESULT_FRESH_MS) {
+        if ((demo == null && !externalModel && !sensors.coreFresh(now)) || now - result[:timestamp] > Config.RESULT_FRESH_MS) {
             alerts.invalidate(); result[:riskScore] = null; result[:status] = :insufficient_data;
         }
         alerts.tick(now); phone.tick(now);
@@ -74,12 +75,9 @@ class DrowsyAlertApp extends Application.AppBase {
         if (!payload.hasKey(:riskScore) || !payload.hasKey(:status) ||
             !payload.hasKey(:timestamp) || !payload.hasKey(:modelVersion)) { return false; }
         externalModel = true;
-        if (!sensors.coreFresh(now)) {
-            alerts.invalidate();
-            result = model.resultFromScore(null, now, payload[:modelVersion]);
-            WatchUi.requestUpdate(); return false;
-        }
+        // A fresh external video score does not require complete watch sensors.
         var accepted = alerts.evaluate(payload, now);
+        if (accepted) { lastValidRisk = payload[:riskScore]; lastValidRiskAt = payload[:timestamp]; }
         result = accepted ? payload : { :riskScore => null, :timestamp => payload[:timestamp],
             :status => payload[:status] == :ready ? :insufficient_data : payload[:status], :modelVersion => payload[:modelVersion] };
         alerts.tick(now); WatchUi.requestUpdate(); return accepted;
@@ -98,6 +96,7 @@ class DrowsyAlertApp extends Application.AppBase {
     }
     function isTestMode() { return demo != null || testData != null; }
     function replayTestData() {
+        lastValidRisk = null; lastValidRiskAt = null;
         phone.alerts.stop(); phone.alerts.level = 0;
         externalModel = false; sensors.stop(); sensors = new SensorCollector();
         alerts.stop(); alerts = new AlertController(); demo = null;
@@ -107,11 +106,16 @@ class DrowsyAlertApp extends Application.AppBase {
         alerts.tick(now); WatchUi.requestUpdate();
     }
     function setDemo(score) {
+        lastValidRisk = null; lastValidRiskAt = null;
         if (testData != null) { live(); }
         alerts.stop(); alerts = new AlertController(); demo = score;
         evaluateNow(System.getTimer()); alerts.tick(System.getTimer()); WatchUi.requestUpdate();
     }
+    function lastScoreAge(now) {
+        return lastValidRiskAt == null ? 0 : Config.max(0, (now-lastValidRiskAt)/1000).toNumber();
+    }
     function live() {
+        lastValidRisk = null; lastValidRiskAt = null;
         if (isTestMode()) { alerts.stop(); alerts = new AlertController(); }
         if (testData != null) {
             testData = null; sensors = new SensorCollector(); sensors.start();

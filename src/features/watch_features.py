@@ -1,13 +1,12 @@
 """Sliding-window feature extraction for the DrozyAI wearable model.
 
 Reads the aligned per-second table produced by Person 1 and produces
-one row per 60-second window (step 5 seconds) with five raw features:
+one row per 60-second window (step 5 seconds) with four raw features:
 
     hr_mean      : mean heart rate over the window
     rmssd        : root mean square of successive differences of IBI
                    (only over seconds with ibi_count > 0)
     temp_trend   : linear slope of skin temperature over the window
-    eda_peaks    : number of EDA peaks above (mean + 1*std) in the window
     motion_var   : mean of the three accelerometer variance columns
 
 Note on normalization:
@@ -103,7 +102,6 @@ def _count_eda_peaks(values: np.ndarray, std_mult: float = 1.0) -> int:
 def _extract_window_features(window: pd.DataFrame) -> dict[str, float]:
     hr = window["heart_rate"].to_numpy(dtype=float)
     temp = window["temp"].to_numpy(dtype=float)
-    eda = window["eda"].to_numpy(dtype=float)
 
     valid_ibi = window.loc[window["ibi_count"] > 0, "ibi_mean"]
     ibi_values = valid_ibi.to_numpy(dtype=float)
@@ -129,7 +127,7 @@ def _extract_window_features(window: pd.DataFrame) -> dict[str, float]:
 def build_feature_table(full_df: pd.DataFrame) -> pd.DataFrame:
     """Build the sliding-window feature table.
 
-    Returns one row per window with the five raw features (no
+    Returns one row per window with the four raw features (no
     normalization) and a majority-vote label.
     """
     records = []
