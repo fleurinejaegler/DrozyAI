@@ -189,6 +189,7 @@ def train_5fold(
 def main() -> None:
     in_path = Path("data/processed/window_features.parquet")
     out_path = Path("data/processed/baseline_scores.parquet")
+    model_path = Path("data/processed/baseline_model.pkl")     # ← 新增
 
     print(f"Loading {in_path} ...")
     features = pd.read_parquet(in_path)
@@ -209,6 +210,18 @@ def main() -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     predictions.to_parquet(out_path, index=False)
     print(f"\nWrote {out_path} ({len(predictions)} rows)")
+
+    print("\nTraining final model on all clean data ...")
+    clean = features.dropna(subset=FEATURE_COLUMNS).reset_index(drop=True)
+    X_all = clean[FEATURE_COLUMNS].to_numpy()
+    y_all = clean["label"].to_numpy()
+
+    final_pipe = _build_pipeline()
+    final_pipe.fit(X_all, y_all)
+
+    import joblib
+    joblib.dump(final_pipe, model_path)
+    print(f"Saved model to {model_path}")
 
 
 if __name__ == "__main__":

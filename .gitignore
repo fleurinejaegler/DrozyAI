@@ -13,6 +13,7 @@ venv/
 # ============================================================
 *.h5
 *.pkl
+!/data/processed/baseline_model.pkl
 *.npz
 *.pt
 *.pth
