@@ -1,4 +1,5 @@
 import Toybox.Application;
+import Toybox.Attention;
 import Toybox.Lang;
 import Toybox.System;
 import Toybox.Time;
@@ -9,6 +10,7 @@ class DrowsyAlertApp extends Application.AppBase {
     var phone as PhoneAlertBridge;
     var externalModel = false; var testData as TestDataReplay? = null; var demo = null; var result as Dictionary;
     var lastFeatureTick = 0; var lastEvaluation = 0; var foreground = true;
+    var displayWakeBlocked = false;
     function initialize() {
         AppBase.initialize();
         sensors = new SensorCollector(); features = new FeatureCollector();
@@ -30,8 +32,21 @@ class DrowsyAlertApp extends Application.AppBase {
             alerts.invalidate(); result[:riskScore] = null; result[:status] = :insufficient_data;
         }
         alerts.tick(now); phone.tick(now);
+        refreshAlarmDisplay(now);
         phone.sendTelemetry(sensors, now, isTestMode());
         if (foreground) { WatchUi.requestUpdate(); }
+    }
+    function refreshAlarmDisplay(now) {
+        // One display owner covers both alert sources without competing calls.
+        var active = foreground && (alerts.signaling(now) || phone.alerts.signaling(now));
+        if (!active) { displayWakeBlocked = false; return; }
+        if (displayWakeBlocked || !(Attention has :backlight)) { return; }
+        try { Attention.backlight(1.0); }
+        catch (ex) {
+            // Respect AMOLED protection; do not retry every half second after rejection.
+            displayWakeBlocked = true;
+            System.println("Alarm display brightness limited by device");
+        }
     }
     function evaluateNow(now) {
         lastEvaluation = now;

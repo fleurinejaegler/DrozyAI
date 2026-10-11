@@ -47,7 +47,7 @@ The example timestamps are placeholders: use the current capture timestamp. `sev
 
 Receipts include `status` (`accepted`, `stale`, `duplicate`, `wrong_session`, `invalid`, or `test_mode`) and, when available, sequence. START silences both active alert sources while retaining elevated status and sends `type: user_acknowledged` for the phone alert. Its sequence identifies the latest accepted phone alert. Replies use a bounded pending slot; transport failure can prevent acknowledgment delivery, so phone UI must not assume receipt.
 
-No recent heartbeat for 15 seconds marks the phone signal stale; it retains an existing warning. Flashing lasts up to 10 seconds; tone/vibration repeat at most every 5 seconds for up to 30 seconds. Fresh elevated messages can remind after the configured acknowledgment cooldown. An absent phone connection never creates a low-risk score.
+No recent heartbeat for 15 seconds marks the phone signal stale; it retains an existing warning. Flashing lasts up to 10 seconds; Yellow alerts repeat an alarm tone and two 90% vibration pulses every 3 seconds. Red alerts repeat a loud beep and three 100% vibration pulses every 1.5 seconds. Both signal for up to 30 seconds or until START acknowledgment. While an alarm is sounding and the app is visible, the app requests full display brightness every 500 ms; Garmin display timeout settings and AMOLED burn-in protection can still limit it. Fresh elevated messages can remind after the configured acknowledgment cooldown. An absent phone connection never creates a low-risk score.
 
 ## Build and physical test
 

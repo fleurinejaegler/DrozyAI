@@ -17,7 +17,8 @@ module Config {
     const CONSECUTIVE = 3;
     const FLASH_MS = 10000;
     const SIGNAL_MS = 30000;
-    const SIGNAL_INTERVAL_MS = 5000;
+    const SIGNAL_INTERVAL_MS = 3000;
+    const HIGH_SIGNAL_INTERVAL_MS = 1500;
     const REMINDER_MS = 60000;
     const STILL_MG = 50.0;
 }
