@@ -314,7 +314,7 @@ The hook validates results through the shared AlertController and requires fresh
 actual core sensor data. Once invoked it prevents the unconnected local adapter
 from overwriting received results; sensor loss and result timeout still clear the
 score and retain an active warning. Return to live leaves this receiver mode.
-No Bluetooth/phone/HTTP transport is implemented or selected here. A Python model
+The generic watch-score hook has no transport attached. The separate phone-camera Bluetooth alert transport is documented in PHONE_BLUETOOTH.md and does not call this score hook. A Python model
 cannot send directly to this hook without a watch-compatible receiver/companion.
 The teammate must agree on sensor export, transport, timestamps, inference window,
 feature schema and missing-data rules before remote integration is complete.

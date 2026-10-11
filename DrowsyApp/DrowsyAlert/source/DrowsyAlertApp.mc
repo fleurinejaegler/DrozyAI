@@ -1,22 +1,25 @@
 import Toybox.Application;
 import Toybox.Lang;
 import Toybox.System;
+import Toybox.Time;
 import Toybox.Timer;
 import Toybox.WatchUi;
 class DrowsyAlertApp extends Application.AppBase {
     var sensors as SensorCollector; var features as FeatureCollector; var model as ModelAdapter; var alerts as AlertController; var ticker as Timer.Timer;
+    var phone as PhoneAlertBridge;
     var externalModel = false; var testData as TestDataReplay? = null; var demo = null; var result as Dictionary;
     var lastFeatureTick = 0; var lastEvaluation = 0; var foreground = true;
     function initialize() {
         AppBase.initialize();
         sensors = new SensorCollector(); features = new FeatureCollector();
         model = new ModelAdapter(); alerts = new AlertController(); ticker = new Timer.Timer();
+        phone = new PhoneAlertBridge(Time.now().value().toString() + "-" + System.getTimer().toString());
         result = { :riskScore => null, :status => :model_not_connected, :timestamp => 0, :modelVersion => "not-connected" };
     }
     function onStart(state as Dictionary?) as Void {
         var now = System.getTimer();
         features.restartBaseline(now); lastFeatureTick = now; lastEvaluation = now;
-        sensors.start(); ticker.start(method(:tick), 500, true);
+        sensors.start(); phone.start(); ticker.start(method(:tick), 500, true);
     }
     function tick() as Void {
         var now = System.getTimer();
@@ -26,7 +29,7 @@ class DrowsyAlertApp extends Application.AppBase {
         if ((demo == null && !sensors.coreFresh(now)) || now - result[:timestamp] > Config.RESULT_FRESH_MS) {
             alerts.invalidate(); result[:riskScore] = null; result[:status] = :insufficient_data;
         }
-        alerts.tick(now);
+        alerts.tick(now); phone.tick(now);
         if (foreground) { WatchUi.requestUpdate(); }
     }
     function evaluateNow(now) {
@@ -64,8 +67,16 @@ class DrowsyAlertApp extends Application.AppBase {
         result = accepted ? payload : model.resultFromScore(null, now, payload[:modelVersion]);
         alerts.tick(now); WatchUi.requestUpdate(); return accepted;
     }
+    function displayAlerts() as AlertController {
+        return phone.alerts.level >= alerts.level && phone.alerts.level > 0 ? phone.alerts : alerts;
+    }
+    function phoneAlertVisible() { return phone.alerts.level > 0 && phone.alerts.level >= alerts.level; }
+    function acknowledgeAlerts(now) {
+        alerts.acknowledge(now); phone.acknowledge(now); WatchUi.requestUpdate();
+    }
     function isTestMode() { return demo != null || testData != null; }
     function replayTestData() {
+        phone.alerts.stop(); phone.alerts.level = 0;
         externalModel = false; sensors.stop(); sensors = new SensorCollector();
         alerts.stop(); alerts = new AlertController(); demo = null;
         var now = System.getTimer();
@@ -97,9 +108,7 @@ class DrowsyAlertApp extends Application.AppBase {
             if (demo == null && !sensors.coreFresh(now)) { return "Warning / data missing"; }
             return alerts.level == 2 ? "High risk - stop safely" : "Drowsiness warning";
         }
-        if (testData != null) {
-            result = testData.result(model, now);
-        } else if (demo != null) { return "DEMO - awaiting threshold"; }
+        if (demo != null) { return "DEMO - awaiting threshold"; }
         if (!sensors.coreFresh(now)) { return "Sensor data missing"; }
         if (testData != null) { return "TEST DATA REPLAY"; }
         if (externalModel && result[:status] == :ready) { return result[:riskScore] >= Config.WARNING ? "Warning - confirming" : "Low estimated risk"; }
@@ -109,7 +118,7 @@ class DrowsyAlertApp extends Application.AppBase {
         if (result[:riskScore] >= Config.WARNING) { return "Warning - confirming"; }
         return "Low estimated risk";
     }
-    function onStop(state as Dictionary?) as Void { ticker.stop(); alerts.stop(); sensors.stop(); }
+    function onStop(state as Dictionary?) as Void { ticker.stop(); alerts.stop(); phone.stop(); sensors.stop(); }
     function getInitialView() as [Views] or [Views, InputDelegates] {
         return [new DrowsyAlertView(), new DrowsyAlertDelegate()];
     }

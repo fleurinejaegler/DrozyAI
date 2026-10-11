@@ -135,3 +135,38 @@ function testReplayEndToEnd(logger) {
     Test.assertEqual(replay.result(model, 91000)[:riskScore], 0.28);
     return true;
 }
+
+(:test)
+function testPhoneAlerts(logger) {
+    var b = new PhoneAlertBridge("watch-session");
+    b.transportEnabled = false; b.alerts.signalEnabled = false;
+    var message = {"protocol"=>1, "source"=>"phone_video", "type"=>"hello", "sentAt"=>1000};
+    Test.assert(b.receive(message, 1000, 100, false)["status"].equals("ready"));
+    message["type"] = "alert"; message["session"] = "watch-session";
+    message["sequence"] = 1; message["severity"] = "warning";
+    // No SensorCollector or watch-model score involved.
+    Test.assert(b.receive(message, 1000, 100, false)["status"].equals("accepted"));
+    Test.assertEqual(b.alerts.level, 1); Test.assert(b.alerts.flashing(100));
+    Test.assert(b.receive(message, 1000, 200, false)["status"].equals("duplicate"));
+    message["sequence"] = 2; message["severity"] = "high";
+    b.receive(message, 1000, 500, false); Test.assertEqual(b.alerts.level, 2);
+    b.acknowledge(600); Test.assert(b.alerts.acknowledged); Test.assert(!b.alerts.flashing(600));
+    message["sequence"] = 3;
+    b.receive(message, 1000, 1000, false); Test.assert(b.alerts.acknowledged);
+    message["sentAt"] = 1061; message["sequence"] = 4;
+    b.receive(message, 1061, 61600, false); Test.assert(!b.alerts.acknowledged);
+    message["sequence"] = 5; message["type"] = "clear";
+    Test.assert(b.receive(message, 1080, 80000, false)["status"].equals("stale"));
+    Test.assertEqual(b.alerts.level, 2);
+    message["sentAt"] = 1080; message["session"] = "old-session";
+    Test.assert(b.receive(message, 1080, 80000, false)["status"].equals("wrong_session"));
+    message["session"] = "watch-session";
+    Test.assert(b.receive(message, 1080, 80000, true)["status"].equals("test_mode"));
+    Test.assert(b.receive(message, 1080, 80000, false)["status"].equals("accepted"));
+    Test.assertEqual(b.alerts.level, 0);
+    Test.assert(b.fresh(80000)); Test.assert(!b.fresh(96000));
+    Test.assert(b.receive("bad", 1080, 80000, false)["status"].equals("invalid"));
+    message["type"] = "alert"; message["sequence"] = 6; message["severity"] = "bad";
+    Test.assert(b.receive(message, 1080, 80000, false)["status"].equals("invalid"));
+    return true;
+}

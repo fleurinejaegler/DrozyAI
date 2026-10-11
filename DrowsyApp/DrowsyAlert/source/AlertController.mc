@@ -49,6 +49,12 @@ class AlertController {
         }
         return true;
     }
+    // Explicit phone-model decision, independent of watch sensors/score thresholds.
+    function triggerExternal(requestedLevel, now) {
+        lastAccepted = now; missing = false;
+        if (requestedLevel > level) { level = requestedLevel; begin(now); }
+        else if (acknowledged && reminderAt != null && now >= reminderAt) { begin(now); }
+    }
     function acknowledge(now) {
         if (level == 0) { return false; }
         acknowledged = true; started = null; lastSignal = null;

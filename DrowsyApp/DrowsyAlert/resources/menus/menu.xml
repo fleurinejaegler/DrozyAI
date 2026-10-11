@@ -1,7 +1,5 @@
 <menu id="MainMenu">
     <menu-item id="test_replay" label="Replay TEST DATA" />
-    <menu-item id="test_warning" label="Test warning (DEMO)" />
-    <menu-item id="test_high" label="Test high (DEMO)" />
     <menu-item id="live" label="Return to live" />
     <menu-item id="baseline" label="Restart baseline" />
 </menu>

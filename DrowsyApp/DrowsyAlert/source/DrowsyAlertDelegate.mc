@@ -8,7 +8,7 @@ class DrowsyAlertDelegate extends WatchUi.BehaviorDelegate {
         return true;
     }
     function onSelect() as Boolean {
-        getApp().alerts.acknowledge(System.getTimer()); WatchUi.requestUpdate(); return true;
+        getApp().acknowledgeAlerts(System.getTimer()); return true;
     }
     function onBack() as Boolean { return false; }
 }

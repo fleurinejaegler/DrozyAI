@@ -90,7 +90,8 @@ class DrowsyAlertView extends WatchUi.View {
         var app = getApp();
         var now = System.getTimer();
         var sensor = app.sensors;
-        var alert = app.alerts;
+        var alert = app.displayAlerts();
+        var phoneAlert = app.phoneAlertVisible();
         var risk = app.result[:status] == :ready && now - app.result[:timestamp] <= Config.RESULT_FRESH_MS ? app.result[:riskScore] : null;
         var value = risk == null ? "--" : (risk * 100).format("%.0f");
         var high = alert.level == 2;
@@ -111,11 +112,12 @@ class DrowsyAlertView extends WatchUi.View {
             triangle(dc, 139, fg, bg);
             if (high) { alertWaves(dc, fg); }
             score(dc, value, 222, fg);
-            text(dc, 227, 294, 26, high ? "HIGH DROWSINESS" : "DROWSINESS RISING", fg);
+            if (phoneAlert) { text(dc, 227, 266, 13, "WATCH RISK SCORE", fg); }
+            text(dc, 227, 294, 26, phoneAlert ? "PHONE CAMERA ALERT" : (high ? "HIGH DROWSINESS" : "DROWSINESS RISING"), fg);
             text(dc, 227, 329, 29, high ? "STOP SAFELY" : "TAKE A BREAK", fg);
             heart(dc, 155, 364, fg);
             text(dc, 240, 367, 29, hr + " bpm", fg);
-            text(dc, 227, 393, 13, (app.isTestMode() ? "TEST | " : "") + (!sensor.coreFresh(now) ? "SENSOR DATA MISSING" : "SpO2 " + o2 + "   Move " + move + " mg"), fg);
+            text(dc, 227, 393, 13, (app.isTestMode() ? "TEST | " : "") + (phoneAlert && !app.phone.fresh(now) ? "PHONE SIGNAL STALE" : (!sensor.coreFresh(now) ? "SENSOR DATA MISSING" : "SpO2 " + o2 + "   Move " + move + " mg")), fg);
             text(dc, 227, 414, 13, alert.acknowledged ? "ACKNOWLEDGED - ELEVATED" : "START: ACKNOWLEDGE", fg);
         } else {
             gauge(dc, risk, accent, muted);
@@ -126,7 +128,7 @@ class DrowsyAlertView extends WatchUi.View {
             text(dc, 240, 336, 32, hr + " bpm", fg);
             text(dc, 227, 368, 15, app.isTestMode() ? "TEST - SIMULATED DATA" : "HEART RATE", 0xAAB7BC);
             text(dc, 227, 392, 15, "SpO2 " + o2 + "   Move " + move + " mg", 0xAAB7BC);
-            text(dc, 227, 414, 13, "MENU: OPTIONS", 0xAAB7BC);
+            text(dc, 227, 414, 13, app.isTestMode() ? "MENU: OPTIONS" : app.phone.label(now), 0xAAB7BC);
         }
     }
 }
