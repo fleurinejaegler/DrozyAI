@@ -99,7 +99,7 @@ function testUploadBuffer(logger) {
 (:test)
 function testComputerUploadState(logger) {
     var s=new SensorCollector(); var u=new ComputerUplink();
-    u.transportEnabled=false; u.enabled=true; u.endpoint="https://offline.invalid/garmin/data"; u.token="offline-test-token";
+    u.transportEnabled=false; u.enabled=true; u.websiteReady=true; u.endpoint="https://offline.invalid/garmin/data"; u.token="offline-test-token";
     u.tick(s,1000,false,true); Test.assert(u.busy); var first=u.pending;
     var attempt=u.generation;
     s.uploadBuffer.addHeart(1500,72);
@@ -122,6 +122,24 @@ function testComputerUploadState(logger) {
     Test.assertEqual(s.uploadBuffer.dropped["expired_batches"],2);
     Test.assert(u.pending!=frozen);
     u.cancel();
+    return true;
+}
+(:test)
+function testWebsitePlaceholder(logger) {
+    var u=new ComputerUplink(); var s=new SensorCollector();
+    u.transportEnabled=false;
+    // Build configuration takes precedence over settings from earlier installs.
+    u.endpoint="https://old.invalid/garmin/data"; u.token="old-test-token";
+    u.enabled=false; u.load();
+    Test.assert(u.enabled);
+    Test.assert(u.endpoint.equals(WebsiteConfig.UPLOAD_URL));
+    Test.assert(u.token.equals(WebsiteConfig.API_TOKEN));
+    Test.assertEqual(u.batchMs,WebsiteConfig.UPLOAD_INTERVAL_MS);
+    u.websiteReady=false;
+    u.tick(s,1000,false,true);
+    Test.assert(!u.busy); Test.assert(u.pending==null);
+    Test.assert(!s.uploadBuffer.recording);
+    Test.assert(u.label(1000).equals("WEBSITE: COMING SOON"));
     return true;
 }
 (:test)

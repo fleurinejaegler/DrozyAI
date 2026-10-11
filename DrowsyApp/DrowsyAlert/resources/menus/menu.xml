@@ -2,9 +2,5 @@
     <menu-item id="test_replay" label="Replay TEST DATA" />
     <menu-item id="live" label="Return to live" />
     <menu-item id="baseline" label="Restart baseline" />
-    <menu-item id="computer_status" label="Sensors / computer" />
-    <menu-item id="computer_endpoint" label="Upload HTTPS URL" />
-    <menu-item id="computer_token" label="Upload token" />
-    <menu-item id="computer_toggle" label="Start / stop uploads" />
-    <menu-item id="computer_cadence" label="Upload interval: 1s / 5s" />
+    <menu-item id="computer_status" label="Sensors / website" />
 </menu>

@@ -1,52 +1,29 @@
-import Toybox.Application;
 import Toybox.Communications;
 import Toybox.Lang;
 import Toybox.Math;
 import Toybox.System;
 import Toybox.Time;
 class ComputerUplink {
-    var endpoint as String = ""; var token as String = ""; var enabled = false;
+    var endpoint as String = WebsiteConfig.UPLOAD_URL;
+    var token as String = WebsiteConfig.API_TOKEN;
+    var enabled = true;
+    var websiteReady = WebsiteConfig.READY;
     var session; var anchorEpoch; var anchorWatch;
     var sequence = 0; var pending as Dictionary? = null; var busy = false;
     var requestAt = 0; var nextAttempt = 0; var retryMs = 5000;
     var lastUpload = null; var lastUploadEpoch = null; var error = "";
     var generation = 0; var transportEnabled = true;
-    var batchMs = 5000;
+    var batchMs = WebsiteConfig.UPLOAD_INTERVAL_MS;
     function initialize() {
         anchorWatch = System.getTimer(); anchorEpoch = Time.now().value();
         session = anchorEpoch.toString()+"-"+Math.rand().toString();
     }
     function load() {
-        try {
-            var url = Application.Storage.getValue("computerEndpoint");
-            var key = Application.Storage.getValue("computerToken");
-            var active = Application.Storage.getValue("computerEnabled");
-            var cadence = Application.Storage.getValue("computerBatchMs");
-            if (url instanceof String) { endpoint=url; }
-            if (key instanceof String) { token=key; }
-            enabled = active == true;
-            if (cadence instanceof Number && cadence >= 1000 && cadence <= 5000) { batchMs=cadence; }
-        } catch (ex) { error="Settings unavailable"; }
-    }
-    function configure(which, value) {
-        if (which == :endpoint) {
-            if (value.length() < 9 || !value.substring(0,8).equals("https://")) { error="HTTPS URL required"; return false; }
-            endpoint=value; Application.Storage.setValue("computerEndpoint",value);
-        } else {
-            if (value.length()<12) { error="Token needs 12+ characters"; return false; }
-            token=value; Application.Storage.setValue("computerToken",value);
-        }
-        cancel(); lastUpload=null; error=""; nextAttempt=0; retryMs=5000;
-        return true;
-    }
-    function toggle() {
-        enabled=!enabled; Application.Storage.setValue("computerEnabled",enabled);
-        if (!enabled) { cancel(); }
-        nextAttempt=0;
-    }
-    function toggleCadence() {
-        batchMs=batchMs==5000 ? 1000 : 5000;
-        Application.Storage.setValue("computerBatchMs",batchMs);
+        // Build configuration is authoritative, including on previously installed watches.
+        // Old manually entered URLs, tokens and OFF settings must not override it.
+        endpoint=WebsiteConfig.UPLOAD_URL; token=WebsiteConfig.API_TOKEN;
+        enabled=true; websiteReady=WebsiteConfig.READY;
+        batchMs=WebsiteConfig.UPLOAD_INTERVAL_MS;
     }
     function cancel() {
         generation+=1;
@@ -54,7 +31,7 @@ class ComputerUplink {
         busy=false;
     }
     function tick(sensors as SensorCollector, now, testMode, foreground) {
-        var collecting = enabled && endpoint.length()>0 && token.length()>=12 && !testMode;
+        var collecting = enabled && websiteReady && endpoint.length()>0 && token.length()>=12 && !testMode;
         sensors.uploadBuffer.recording=collecting;
         if (!collecting) {
             if (busy) { cancel(); }
@@ -100,6 +77,7 @@ class ComputerUplink {
     }
     function connected(now) { return enabled && error.length()==0 && lastUpload!=null && now-lastUpload<=15000; }
     function label(now) {
+        if (!websiteReady) { return "WEBSITE: COMING SOON"; }
         if (!enabled) { return "COMPUTER: OFF"; }
         if (endpoint.length()==0 || token.length()<12) { return "COMPUTER: SETUP NEEDED"; }
         if (connected(now)) { return "COMPUTER: CONNECTED"; }

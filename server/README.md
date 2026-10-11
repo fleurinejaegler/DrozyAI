@@ -1,4 +1,4 @@
-# Garmin 970 to MacBook sensor companion
+# Garmin 970 website sensor receiver (Windows or Mac)
 
 This receiver implements the sensor-streaming brief in the existing DrowsyAlert app.
 The route is **Forerunner 970 -> existing DrowsyAlert -> Garmin Connect Mobile HTTPS bridge -> public HTTPS tunnel -> MacBook FastAPI -> terminal and CSV**.
@@ -92,24 +92,20 @@ then unplug and reopen DrowsyAlert.
    an external sensor of that type is registered, even if currently inactive.
    It does not substitute chest straps or tempe sensors.
 3. Open DrowsyAlert and choose **Return to live**. Demo and replay uploads are blocked.
-4. Hold the watch's MENU button. Choose **Upload HTTPS URL**, enter the complete
-   URL ending in `/garmin/data`, and confirm using the native text picker.
-5. Choose **Upload token**, enter the receiver's token (without `Bearer `), and confirm.
-   The token is saved in the watch's application storage and is never displayed
-   on the status screen. The text picker may show it while you enter it.
-6. Choose **Start / stop uploads** once to start. Uploads are off by default.
-7. Open **Sensors / computer**. `COMPUTER: CONNECTED` appears only after a server
-   acknowledgment matching both the session and batch ID. The screen shows HR,
-   accelerometer status/rate, IBI availability, temperature, last successful
-   upload age, errors, and cumulative accelerometer drops. START still
-   acknowledges alarms. An active alarm displays the original alarm screen.
+4. The watch now uses build-time website configuration and starts uploads automatically.
+   There are no URL, token, upload toggle, or cadence controls on the watch.
+5. Until the partner enables a real endpoint, the main screen and **Sensors / website**
+   show `WEBSITE: COMING SOON`. No placeholder requests or upload buffering occur.
+6. Follow [the partner handoff](PARTNER_HANDOFF.md) to set the endpoint and receiver
+   token, rebuild, and install. Older stored watch settings are ignored.
+7. Once enabled, **Sensors / website** shows the last upload, sensor availability,
+   errors and dropped samples. Successful acknowledgments show `COMPUTER: CONNECTED`.
 
-The normal main watch screen is preserved. Endpoint, token, upload enablement,
-and cadence survive an app restart. Each restart starts a new upload session.
-The **Upload interval: 1s / 5s** menu toggles the target cadence; the default is
-five seconds. Network latency is additional, and the uploader never overlaps
-requests. A one-second cadence reduces per-request data size if your phone or
-firmware rejects larger requests.
+The default upload cadence is five seconds. Each app launch starts a new session.
+The initial setup instructions above describe starting the receiver and obtaining
+its endpoint/token; these values now go in `WebsiteConfig.mc`, not a watch text picker.
+For preconfigured builds, use a stable endpoint and set `GARMIN_API_TOKEN` before
+starting the receiver so restarts do not change the credential.
 
 ## 4. Verify live data on the Mac
 

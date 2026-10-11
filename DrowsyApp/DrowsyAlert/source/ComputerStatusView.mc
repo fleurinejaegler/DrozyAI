@@ -30,12 +30,3 @@ class ComputerStatusDelegate extends WatchUi.BehaviorDelegate {
     function onSelect() as Boolean { getApp().acknowledgeAlerts(System.getTimer()); return true; }
     function onBack() as Boolean { WatchUi.popView(WatchUi.SLIDE_DOWN); return true; }
 }
-class ComputerSetupDelegate extends WatchUi.TextPickerDelegate {
-    var field;
-    function initialize(which) { TextPickerDelegate.initialize(); field=which; }
-    function onTextEntered(text,changed) as Boolean {
-        if (changed) { getApp().computer.configure(field,text); }
-        WatchUi.popView(WatchUi.SLIDE_DOWN); return true;
-    }
-    function onCancel() as Boolean { WatchUi.popView(WatchUi.SLIDE_DOWN); return true; }
-}
