@@ -97,3 +97,10 @@ Original training notes are preserved in [docs/TRAINING_NOTES.md](docs/TRAINING_
 ## Local files
 
 Keep raw recordings, live sensor logs, pairing tokens, `.env` files, signing keys, Xcode user settings and virtual environments out of Git. The ignore rules cover these local outputs. The four fitted runtime model files are intentionally included so the inference demo can load immediately.
+
+
+## Data source
+
+This project uses the UL-DD dataset:
+
+Bodaghi, M., Hosseini, M., Gottumukkala, R., Bhupatiraju, R. T., Ahmad, I., & Gabbouj, M. (2025). *UL-DD: A multimodal drowsiness dataset using video, biometric, and behavioral data* (Version v1) [Data set]. Zenodo. https://doi.org/10.5281/zenodo.17978727
